@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Tuple
 import json
 import random
+from collections import defaultdict
 
 
 class Aedificium:
@@ -355,8 +356,281 @@ def create_random_aedificium(num_rooms: int) -> Aedificium:
     return Aedificium(rooms, starting_room, connections)
 
 
+def reconstruct_aedificium(plan: str, result: List[int], room_history: List[int], num_rooms: int) -> Aedificium | None:
+    """
+    探索結果と真の部屋IDからÆdificium全体を復元する
+    
+    Args:
+        plan: 探索に使用したplan（例："23"）
+        result: planの探索結果（部屋ラベルのリスト、例：[0,1,2]）
+        room_history: resultの各要素に対応する真の部屋ID（例：[4,5,6]）
+        num_rooms: 部屋数
+    Returns:
+        復元されたAedificiumオブジェクト、または失敗時はNone
+    """
+
+    if len(result) != len(room_history):
+        raise ValueError("result and room_history length mismatch")
+
+    rooms = [None for _ in range(num_rooms)]
+    for room_id, room_label in zip(room_history, result):
+        if rooms[room_id] is not None and rooms[room_id] != room_label:
+            print(f"DEBUG: room_id={room_id}, room_label={room_label}, rooms[room_id]={rooms[room_id]}")
+            return None
+        rooms[room_id] = room_label
+    if any(room_label is None for room_label in rooms):
+        print(f"DEBUG: rooms={rooms}")
+        return None
+
+    plan_ints = [int(p) for p in plan]
+    door_destinations = {}
+    incoming_doors = [set() for _ in range(num_rooms)]
+    for room_from, plan_int, room_to in zip(room_history[:-1], plan_ints, room_history[1:]):
+        door = (room_from, plan_int)
+        if door in door_destinations and door_destinations[door] != room_to:
+            print(f"DEBUG: door={door}, door_destinations[door]={door_destinations[door]}, room_to={room_to}")
+            return None
+        door_destinations[door] = room_to
+        incoming_doors[room_to].add(door)
+
+    connections = []
+    used_doors = set()
+    for room_id, incoming_door_set in enumerate(incoming_doors):
+        if len(incoming_door_set) > 6:
+            print(f"DEBUG: room_id={room_id}, incoming_door_set={incoming_door_set}")
+            return None
+        for incoming_door in incoming_door_set:
+            if incoming_door in used_doors:
+                continue
+            for door_id in range(6):
+                outgoing_door = (room_id, door_id)
+                if outgoing_door in used_doors:
+                    continue
+                incoming_room = incoming_door[0]
+                other_room = door_destinations.get(outgoing_door, incoming_room)
+                if other_room != incoming_room:
+                    continue
+                connections.append({
+                    "from": {"room": incoming_door[0], "door": incoming_door[1]},
+                    "to": {"room": outgoing_door[0], "door": outgoing_door[1]}
+                })
+                used_doors.add(incoming_door)
+                used_doors.add(outgoing_door)
+                break  # 1つの incoming_door につき1つの接続のみ
+
+    # fill connections with self loops for unused doors
+    for room_id in range(num_rooms):
+        for door_id in range(6):
+            if (room_id, door_id) not in used_doors:
+                connections.append({
+                    "from": {"room": room_id, "door": door_id},
+                    "to": {"room": room_id, "door": door_id}
+                })
+    return Aedificium(rooms, starting_room=room_history[0], connections=connections)
+
+
+def test_reconstruct_aedificium():
+    """
+    reconstruct_aedificium関数のテスト
+    """
+    print("=== reconstruct_aedificium テスト開始 ===")
+    
+    # テスト1: 基本的な復元テスト
+    def test_basic_reconstruction():
+        print("\nテスト1: 基本的な復元テスト")
+        
+        # 元のAedificiumを作成
+        original = create_simple_aedificium()
+        print(f"元のAedificium: {original}")
+        
+        # 探索を実行
+        plan = "012345"
+        explore_result = original.explore([plan])
+        result = explore_result["results"][0]
+        print(f"探索プラン: {plan}")
+        print(f"探索結果: {result}")
+        
+        # 実際の部屋履歴を生成（探索をシミュレート）
+        current_room = original.starting_room
+        room_history = [current_room]
+        
+        for door_char in plan:
+            door = int(door_char)
+            if (current_room, door) in original._connection_map:
+                next_room, _ = original._connection_map[(current_room, door)]
+                current_room = next_room
+            room_history.append(current_room)
+        
+        print(f"部屋履歴: {room_history}")
+        
+        # Aedificiumを復元
+        reconstructed = reconstruct_aedificium(plan, result, room_history, len(original.rooms))
+        
+        if reconstructed is None:
+            print("❌ 復元に失敗しました")
+            return False
+        
+        print(f"復元されたAedificium: {reconstructed}")
+        
+        # 復元されたものが元と同じ動作をするかテスト
+        original_test = original.explore([plan])
+        reconstructed_test = reconstructed.explore([plan])
+        
+        if original_test["results"] == reconstructed_test["results"]:
+            print("✅ 基本的な復元テストが成功しました")
+            return True
+        else:
+            print("❌ 復元されたAedificiumの動作が元と異なります")
+            print(f"元の結果: {original_test['results']}")
+            print(f"復元の結果: {reconstructed_test['results']}")
+            return False
+    
+    # テスト2: 長いプランでの復元テスト
+    def test_long_plan_reconstruction():
+        print("\nテスト2: 長いプランでの復元テスト")
+        
+        # より複雑なAedificiumを作成
+        rooms = [0, 1, 2, 3, 0]  # 5部屋
+        starting_room = 0
+        connections = [
+            {"from": {"room": 0, "door": 0}, "to": {"room": 1, "door": 0}},
+            {"from": {"room": 1, "door": 1}, "to": {"room": 2, "door": 0}},
+            {"from": {"room": 2, "door": 1}, "to": {"room": 3, "door": 0}},
+            {"from": {"room": 3, "door": 1}, "to": {"room": 4, "door": 0}},
+            {"from": {"room": 4, "door": 1}, "to": {"room": 0, "door": 1}},
+            # 自己ループで残りのドアを埋める
+            {"from": {"room": 0, "door": 2}, "to": {"room": 0, "door": 2}},
+            {"from": {"room": 0, "door": 3}, "to": {"room": 0, "door": 3}},
+            {"from": {"room": 0, "door": 4}, "to": {"room": 0, "door": 4}},
+            {"from": {"room": 0, "door": 5}, "to": {"room": 0, "door": 5}},
+            {"from": {"room": 1, "door": 2}, "to": {"room": 1, "door": 2}},
+            {"from": {"room": 1, "door": 3}, "to": {"room": 1, "door": 3}},
+            {"from": {"room": 1, "door": 4}, "to": {"room": 1, "door": 4}},
+            {"from": {"room": 1, "door": 5}, "to": {"room": 1, "door": 5}},
+            {"from": {"room": 2, "door": 2}, "to": {"room": 2, "door": 2}},
+            {"from": {"room": 2, "door": 3}, "to": {"room": 2, "door": 3}},
+            {"from": {"room": 2, "door": 4}, "to": {"room": 2, "door": 4}},
+            {"from": {"room": 2, "door": 5}, "to": {"room": 2, "door": 5}},
+            {"from": {"room": 3, "door": 2}, "to": {"room": 3, "door": 2}},
+            {"from": {"room": 3, "door": 3}, "to": {"room": 3, "door": 3}},
+            {"from": {"room": 3, "door": 4}, "to": {"room": 3, "door": 4}},
+            {"from": {"room": 3, "door": 5}, "to": {"room": 3, "door": 5}},
+            {"from": {"room": 4, "door": 2}, "to": {"room": 4, "door": 2}},
+            {"from": {"room": 4, "door": 3}, "to": {"room": 4, "door": 3}},
+            {"from": {"room": 4, "door": 4}, "to": {"room": 4, "door": 4}},
+            {"from": {"room": 4, "door": 5}, "to": {"room": 4, "door": 5}},
+        ]
+        
+        original = Aedificium(rooms, starting_room, connections)
+        
+        # 長いプランで探索
+        plan = "011111111"
+        explore_result = original.explore([plan])
+        result = explore_result["results"][0]
+        
+        # 部屋履歴を生成
+        current_room = original.starting_room
+        room_history = [current_room]
+        
+        for door_char in plan:
+            door = int(door_char)
+            if (current_room, door) in original._connection_map:
+                next_room, _ = original._connection_map[(current_room, door)]
+                current_room = next_room
+            room_history.append(current_room)
+        
+        print(f"長いプラン: {plan}")
+        print(f"探索結果: {result}")
+        print(f"部屋履歴: {room_history}")
+        
+        # 復元を試行
+        reconstructed = reconstruct_aedificium(plan, result, room_history, len(original.rooms))
+        
+        if reconstructed is None:
+            print("❌ 長いプランでの復元に失敗しました")
+            return False
+        
+        # 動作確認
+        original_test = original.explore([plan])
+        reconstructed_test = reconstructed.explore([plan])
+        
+        if original_test["results"] == reconstructed_test["results"]:
+            print("✅ 長いプランでの復元テストが成功しました")
+            return True
+        else:
+            print("❌ 長いプランでの復元が失敗しました")
+            return False
+    
+    # テスト3: エラーケースのテスト
+    def test_error_cases():
+        print("\nテスト3: エラーケースのテスト")
+        
+        # 長さが一致しないケース
+        try:
+            result1 = reconstruct_aedificium("01", [0, 1, 2], [0, 1], 3)  # 長さ不一致
+            print("❌ 長さ不一致のエラーケースで例外が発生しませんでした")
+            return False
+        except ValueError:
+            print("✅ 長さ不一致のエラーケースが適切に処理されました（例外発生）")
+        
+        # 矛盾する部屋ラベルのケース
+        result2 = reconstruct_aedificium("01", [0, 1, 2], [0, 1, 0], 2)  # 部屋0のラベルが0と2で矛盾
+        if result2 is not None:
+            print("❌ 矛盾する部屋ラベルのエラーケースが適切に処理されませんでした")
+            return False
+        else:
+            print("✅ 矛盾する部屋ラベルのエラーケースが適切に処理されました（None返却）")
+        
+        print("✅ エラーケースのテストが成功しました")
+        return True
+    
+    # テスト4: 単一部屋のテスト
+    def test_single_room():
+        print("\nテスト4: 単一部屋のテスト")
+        
+        plan = ""  # 空のプラン
+        result = [2]  # 部屋ラベル2
+        room_history = [0]  # 部屋0のみ
+        num_rooms = 1
+        
+        reconstructed = reconstruct_aedificium(plan, result, room_history, num_rooms)
+        
+        if reconstructed is None:
+            print("❌ 単一部屋の復元に失敗しました")
+            return False
+        
+        # 復元された部屋のラベルが正しいか確認
+        if reconstructed.rooms[0] == 2 and reconstructed.starting_room == 0:
+            print("✅ 単一部屋のテストが成功しました")
+            return True
+        else:
+            print("❌ 単一部屋の復元結果が正しくありません")
+            return False
+    
+    # 全テストを実行
+    test_results = []
+    test_results.append(test_basic_reconstruction())
+    test_results.append(test_long_plan_reconstruction())
+    test_results.append(test_error_cases())
+    test_results.append(test_single_room())
+    
+    # 結果の集計
+    passed = sum(test_results)
+    total = len(test_results)
+    
+    print(f"\n=== テスト結果: {passed}/{total} 成功 ===")
+    
+    if passed == total:
+        print("✅ 全てのテストが成功しました！")
+    else:
+        print("❌ 一部のテストが失敗しました")
+    
+    return passed == total
+
+
 if __name__ == "__main__":
-    # テスト実行
+    # 既存のテスト実行
+    print("=== 既存のAedificiumテスト ===")
     aed = create_simple_aedificium()
     print(f"Created: {aed}")
     
@@ -371,3 +645,8 @@ if __name__ == "__main__":
     # JSON復元テスト
     restored = Aedificium.from_json(json_data)
     print(f"Restored: {restored}")
+
+    print("\n" + "="*50)
+    
+    # reconstruct_aedificiumのテスト実行
+    test_reconstruct_aedificium()
