@@ -183,6 +183,8 @@ class ICFPMockServer(BaseHTTPRequestHandler):
             self._handle_explore(request_data)
         elif path == '/guess':
             self._handle_guess(request_data)
+        elif path == '/spoiler':
+            self._handle_spoiler(request_data)
         else:
             self._send_error(404, f"Endpoint not found: {path}")
     
@@ -336,6 +338,30 @@ class ICFPMockServer(BaseHTTPRequestHandler):
             print(f"Error processing guess: {e}")
             self._send_error(400, f"Invalid map data: {str(e)}")
             return
+
+    def _handle_spoiler(self, request_data):
+        """
+        /spoiler エンドポイントの処理
+        指定されたidの現在の正解（Aedificium）を返す
+        """
+        # リクエストの検証
+        if 'id' not in request_data:
+            self._send_error(400, "Missing required field: id")
+            return
+
+        user_id = request_data['id']
+        current_aedificium = id_states[user_id].get_aedificium()
+
+        # Aedificiumが選択されているかチェック
+        if current_aedificium is None:
+            self._send_error(400, "No problem selected. Please call /select first.")
+            return
+
+        response = {
+            "map": current_aedificium.to_dict()
+        }
+
+        self._send_json_response(200, response)
     
     def _send_json_response(self, status_code, data):
         """JSON形式のレスポンスを送信"""
@@ -394,6 +420,7 @@ def run_server(port=8000):
     print(f"  POST http://localhost:{port}/select")
     print(f"  POST http://localhost:{port}/explore") 
     print(f"  POST http://localhost:{port}/guess")
+    print(f"  POST http://localhost:{port}/spoiler")
     if PERSISTENCE_DIR:
         print(f"State persistence enabled: {PERSISTENCE_DIR} (separate file per user)")
     else:
