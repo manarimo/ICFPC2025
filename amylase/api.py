@@ -6,6 +6,11 @@ from urllib.error import HTTPError, URLError
 API_BASE = "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com"
 
 
+with open("id.json", "r") as f:
+    data = json.load(f)
+    API_ID = data["id"]
+
+
 def make_json_post_request(path, data_dict, headers=None):
     url = f"{API_BASE}{path}"
     json_data = json.dumps(data_dict).encode('utf-8')
@@ -44,9 +49,83 @@ def make_json_post_request(path, data_dict, headers=None):
 
 
 def register(name: str, pl: str, email: str):
+    """
+    新しいチームを登録する
+    
+    Args:
+        name: チーム名
+        pl: プログラミング言語
+        email: メールアドレス
+        
+    Returns:
+        dict: {"id": string} レスポンス
+    """
     request_data = {
         "name": name,
         "pl": pl,
         "email": email,
     }
     return make_json_post_request("/register", request_data)
+
+
+def select(problem_name: str):
+    """
+    問題を選択する
+    
+    Args:
+        problem_name: 選択する問題名
+        
+    Returns:
+        dict: {"problemName": string} レスポンス
+    """
+    request_data = {
+        "id": API_ID,
+        "problemName": problem_name,
+    }
+    return make_json_post_request("/select", request_data)
+
+
+def explore(plans: list):
+    """
+    Ædificiumを探索する
+    
+    Args:
+        plans: ルートプランのリスト（各プランは"0"～"5"の数字の文字列）
+        
+    Returns:
+        dict: {"results": [[int]], "queryCount": int} レスポンス
+    """
+    request_data = {
+        "id": API_ID,
+        "plans": plans,
+    }
+    return make_json_post_request("/explore", request_data)
+
+
+def guess(map_data: dict):
+    """
+    候補となるマップを提出する
+    
+    Args:
+        map_data: マップの説明を含む辞書
+                 {
+                   "rooms": [int],
+                   "startingRoom": int,
+                   "connections": [
+                     {
+                       "from": {"room": int, "door": int},
+                       "to": {"room": int, "door": int}
+                     }
+                   ]
+                 }
+                 
+    Returns:
+        dict: {"correct": boolean} レスポンス
+    """
+    request_data = {
+        "id": API_ID,
+        "map": map_data,
+    }
+    return make_json_post_request("/guess", request_data)
+
+
