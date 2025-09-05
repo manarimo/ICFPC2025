@@ -8,6 +8,37 @@ from typing import List, Dict, Any, Tuple
 from aedificium import Aedificium, create_random_aedificium
 
 
+def levenshtein_distance(s1: List[int], s2: List[int]) -> int:
+    """
+    レーベンシュタイン編集距離を計算する
+    
+    Args:
+        s1: 比較対象のリスト1
+        s2: 比較対象のリスト2
+        
+    Returns:
+        int: 編集距離
+    """
+    if len(s1) < len(s2):
+        return levenshtein_distance(s2, s1)
+    
+    if len(s2) == 0:
+        return len(s1)
+    
+    previous_row = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            # 挿入、削除、置換のコストを計算
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    
+    return previous_row[-1]
+
+
 def validate_constraints(aedificium: Aedificium) -> bool:
     """
     全ドア1回使用の制約をチェックする
@@ -42,7 +73,7 @@ def validate_constraints(aedificium: Aedificium) -> bool:
     
 def evaluate_fitness(aedificium: Aedificium, target_result: List[int], plan: str) -> int:
     """
-    評価関数：保存した結果との一致度を計算
+    評価関数：レーベンシュタイン編集距離を使用した類似度を計算
     
     Args:
         aedificium: 評価対象のAedificium
@@ -50,15 +81,20 @@ def evaluate_fitness(aedificium: Aedificium, target_result: List[int], plan: str
         plan: 使用するプラン
         
     Returns:
-        int: 一致した要素の数（大きいほど良い）
+        int: 類似度スコア（大きいほど良い、完全一致時は最大長）
     """
     # 同じプランでシミュレーション実行
     try:
         simulated_result = aedificium._execute_plan(plan)
         
-        # 一致度を計算
-        matches = sum(1 for a, b in zip(target_result, simulated_result) if a == b)
-        return matches
+        # レーベンシュタイン編集距離を計算
+        edit_distance = levenshtein_distance(target_result, simulated_result)
+        
+        # 類似度スコアに変換（最大長から編集距離を引く）
+        max_length = max(len(target_result), len(simulated_result))
+        similarity_score = max_length - edit_distance
+        
+        return similarity_score
     except Exception:
         # エラーが発生した場合は最低評価
         return 0
@@ -437,10 +473,10 @@ def try_solve():
 
     client = api.create_client(api_base=api_base, api_id=api_id)
     
-    # problem_name = "secundus"
-    # num_rooms = 12
-    problem_name = "probatio"
-    num_rooms = 3
+    problem_name = "secundus"
+    num_rooms = 12
+    # problem_name = "primus"
+    # num_rooms = 6
     plan_length = num_rooms * 18
     
     # 目標データを収集
@@ -460,8 +496,8 @@ def try_solve():
             plan, 
             num_rooms,
             400000,
-            50.0,  # initial_temp
-            0.01   # terminal_temp
+            10.0,  # initial_temp
+            0.1   # terminal_temp
         )
         process_args.append(args)
     
