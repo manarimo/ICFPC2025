@@ -6,37 +6,40 @@ import multiprocessing
 import os
 from typing import List, Dict, Any, Tuple
 from aedificium import Aedificium, create_random_aedificium
+from collections import Counter
+from statistics import mean
 
 
-def levenshtein_distance(s1: List[int], s2: List[int]) -> int:
+def list_ngram_hashes(s: List[int], n: int) -> List[int]:
     """
-    レーベンシュタイン編集距離を計算する
-    
-    Args:
-        s1: 比較対象のリスト1
-        s2: 比較対象のリスト2
-        
-    Returns:
-        int: 編集距離
+    List[int]をngramのhash値のList[List[int]]に変換する
     """
-    if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
-    
-    if len(s2) == 0:
-        return len(s1)
-    
-    previous_row = list(range(len(s2) + 1))
-    for i, c1 in enumerate(s1):
-        current_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            # 挿入、削除、置換のコストを計算
-            insertions = previous_row[j + 1] + 1
-            deletions = current_row[j] + 1
-            substitutions = previous_row[j] + (c1 != c2)
-            current_row.append(min(insertions, deletions, substitutions))
-        previous_row = current_row
-    
-    return previous_row[-1]
+    # use rolling hash
+    hash_value = 0
+    hashes = []
+    p = 11
+    mod = 998244353
+    inv_p = pow(p, mod - 2, mod)
+    for i, x in enumerate(s):
+        hash_value = (hash_value * p + x) % mod
+        if i >= n - 1:
+            hashes.append(hash_value)
+            hash_value = ((hash_value - s[i - n + 1]) % mod * inv_p) % mod
+    return hashes
+
+
+def compare_ngram_sets(seq1: List[int], seq2: List[int], ngram_length: int) -> float:
+    """
+    ngramのhash値の集合を比較する
+
+    smaller is similar
+    """
+
+    hashes1 = list_ngram_hashes(seq1, ngram_length)
+    hashes2 = list_ngram_hashes(seq2, ngram_length)
+
+    jaccard_similarity = len(set(hashes1).intersection(set(hashes2))) / len(set(hashes1).union(set(hashes2)))
+    return 1 - jaccard_similarity
 
 
 def validate_constraints(aedificium: Aedificium) -> bool:
@@ -71,9 +74,9 @@ def validate_constraints(aedificium: Aedificium) -> bool:
     
     return used_doors == expected_doors
     
-def evaluate_fitness(aedificium: Aedificium, target_result: List[int], plan: str) -> int:
+def evaluate_fitness(aedificium: Aedificium, target_result: List[int], plan: str) -> float:
     """
-    評価関数：レーベンシュタイン編集距離を使用した類似度を計算
+    評価関数
     
     Args:
         aedificium: 評価対象のAedificium
@@ -81,23 +84,31 @@ def evaluate_fitness(aedificium: Aedificium, target_result: List[int], plan: str
         plan: 使用するプラン
         
     Returns:
-        int: 類似度スコア（大きいほど良い、完全一致時は最大長）
+        float: 類似度のコスト（小さいほど類似）
     """
     # 同じプランでシミュレーション実行
     try:
         simulated_result = aedificium._execute_plan(plan)
+
         
-        # レーベンシュタイン編集距離を計算
-        edit_distance = levenshtein_distance(target_result, simulated_result)
-        
-        # 類似度スコアに変換（最大長から編集距離を引く）
-        max_length = max(len(target_result), len(simulated_result))
-        similarity_score = max_length - edit_distance
-        
-        return similarity_score
+        mixed_target_result = []
+        mixed_simulated_result = []
+        for i in range(len(target_result)):
+            mixed_target_result.append(target_result[i])
+            mixed_simulated_result.append(simulated_result[i])
+            if i < len(plan):
+                mixed_target_result.append(int(plan[i]) + 4)
+                mixed_simulated_result.append(int(plan[i]) + 4)
+
+        position_mismatch_ratio = len([i for i in range(len(target_result)) if target_result[i] != simulated_result[i]]) / len(target_result)
+        scores = [position_mismatch_ratio]
+        for ngram_length in [3, 5]:
+            hash_set_distance = compare_ngram_sets(mixed_target_result, mixed_simulated_result, ngram_length)
+            scores.append(hash_set_distance)
+        return mean(scores)
     except Exception:
-        # エラーが発生した場合は最低評価
-        return 0
+        # エラーが発生した場合は最悪評価（大きな値）
+        return float('inf')
     
 def mutate_room_label(aedificium: Aedificium) -> Aedificium:
         """
@@ -306,7 +317,7 @@ def get_random_mutation(aedificium: Aedificium) -> Aedificium:
         # 最大10回試行して制約を満たす変更を見つける
         for _ in range(10):
             # ランダムに変更方法を選択
-            mutation_func = random.choices(mutation_functions, weights=[1, 7, 1, 1])[0]
+            mutation_func = random.choices(mutation_functions, weights=[1, 17, 1, 1])[0]
             candidate = mutation_func(aedificium)
             
             # 制約をチェック
@@ -386,7 +397,7 @@ def solve(target_result: List[int], plan: str, num_rooms: int = 3,
         
         temperature = initial_temp
         
-        print(f"初期解の適合度: {current_fitness}/{len(target_result)}")
+        print(f"初期解のコスト: {current_fitness}")
         print(f"温度設定: 初期={initial_temp}, 終了={terminal_temp}, α={alpha:.6f}")
         
         for iteration in range(max_iterations):
@@ -394,28 +405,28 @@ def solve(target_result: List[int], plan: str, num_rooms: int = 3,
             new_solution = get_random_mutation(current_solution)
             new_fitness = evaluate_fitness(new_solution, target_result, plan)
             
-            # 適合度の差を計算
+            # 適合度の差を計算（最小化問題）
             delta = new_fitness - current_fitness
             
             # 受容判定
             accept = False
-            if delta > 0:
-                # 改善した場合は受容
+            if delta < 0:
+                # 改善した場合（値が小さくなった）は受容
                 accept = True
             elif temperature > 0:
                 # 悪化した場合は確率的に受容
-                probability = math.exp(delta / temperature)
+                probability = math.exp(-delta / temperature)
                 accept = random.random() < probability
             
             if accept:
                 current_solution = new_solution
                 current_fitness = new_fitness
                 
-                # 最良解の更新
-                if current_fitness > best_fitness:
+                # 最良解の更新（最小化問題）
+                if current_fitness < best_fitness:
                     best_solution = copy.deepcopy(current_solution)
                     best_fitness = current_fitness
-                    print(f"反復 {iteration}: 新しい最良解 適合度={best_fitness}/{len(target_result)}")
+                    print(f"反復 {iteration}: 新しい最良解 コスト={best_fitness}")
             
             # 温度を指数関数で下げる
             progress = (iteration + 1) / max_iterations
@@ -423,14 +434,14 @@ def solve(target_result: List[int], plan: str, num_rooms: int = 3,
             
             # 進捗表示
             if iteration % 1000 == 0:
-                print(f"反復 {iteration}: 現在の適合度={current_fitness}, 最良適合度={best_fitness}, 温度={temperature:.4f}")
+                print(f"反復 {iteration}: 現在のコスト={current_fitness}, 最良コスト={best_fitness}, 温度={temperature:.4f}")
             
-            # 完全一致した場合は早期終了
-            if best_fitness == len(target_result):
+            # 完全一致した場合は早期終了（コスト0）
+            if best_fitness == 0:
                 print(f"完全一致を発見！反復 {iteration}で終了")
                 break
         
-        print(f"焼きなまし法完了。最終適合度: {best_fitness}/{len(target_result)}")
+        print(f"焼きなまし法完了。最終コスト: {best_fitness}")
         return best_solution
 
 
@@ -475,8 +486,8 @@ def try_solve():
     
     problem_name = "secundus"
     num_rooms = 12
-    # problem_name = "primus"
-    # num_rooms = 6
+    num_rooms = 6
+    problem_name = f"random_room_size_{num_rooms}"
     plan_length = num_rooms * 18
     
     # 目標データを収集
@@ -496,8 +507,8 @@ def try_solve():
             plan, 
             num_rooms,
             400000,
-            10.0,  # initial_temp
-            0.1   # terminal_temp
+            1e-2,  # initial_temp
+            1e-5,   # terminal_temp
         )
         process_args.append(args)
     
@@ -505,20 +516,20 @@ def try_solve():
     with multiprocessing.Pool(processes=num_processes) as pool:
         results = pool.map(solve_with_seed, process_args)
     
-    # 最良の結果を選択
+    # 最良の結果を選択（最小化問題）
     best_solution = None
-    best_fitness = -1
+    best_fitness = float('inf')
     
     for i, (solution, fitness) in enumerate(results):
-        print(f"プロセス {i}: 適合度 = {fitness}/{len(target_result)}")
-        if fitness > best_fitness:
+        print(f"プロセス {i}: コスト = {fitness}")
+        if fitness < best_fitness:
             best_solution = solution
             best_fitness = fitness
     
     estimated_aedificium = best_solution
     
     print(f"\n=== 並列実行結果 ===")
-    print(f"最良解の適合度: {best_fitness}/{len(target_result)}")
+    print(f"最良解のコスト: {best_fitness}")
     print(f"使用したプロセス数: {num_processes}")
     
     print("\n=== 推定結果 ===")
@@ -533,18 +544,18 @@ def try_solve():
     print(f"自己閉路数: {self_loops}")
     print(f"通常接続数: {len(estimated_aedificium.connections) - self_loops}")
     
-    # 最終的な適合度を確認（並列実行で得られた最良適合度を使用）
+    # 最終的なコストを確認（並列実行で得られた最良コストを使用）
     final_fitness = best_fitness
-    print(f"最終適合度: {final_fitness}/{len(target_result)}")
+    print(f"最終コスト: {final_fitness}")
 
-    if final_fitness == len(target_result):
-        print("最終適合度が目標と一致しました")
+    if final_fitness == 0:
+        print("最終コストが0になりました（完全一致）")
         print("サーバーに推測を提出します")
         guess_response = client.guess(estimated_aedificium.to_dict())
         print(guess_response)
         return guess_response["correct"]
     else:
-        print("最終適合度が目標と一致しませんでした")
+        print("最終コストが0になりませんでした")
         return False
 
 
