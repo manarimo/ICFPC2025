@@ -6,14 +6,16 @@ ICFP 2025 Contest CLI Tool
 
 import argparse
 import json
+import os
 import sys
-from api import register, select, explore, guess
+from api import APIClient, create_client
 
 
 def cmd_register(args):
     """チーム登録コマンド"""
     try:
-        response = register(args.name, args.pl, args.email)
+        client = create_client(api_base=args.api_base)
+        response = client.register(args.name, args.pl, args.email)
         print(f"登録成功: {json.dumps(response, indent=2)}")
         
         with open("id.json", "w") as f:
@@ -28,7 +30,8 @@ def cmd_register(args):
 def cmd_select(args):
     """問題選択コマンド"""
     try:
-        response = select(args.problem_name)
+        client = create_client(api_base=args.api_base)
+        response = client.select(args.problem_name)
         print(f"問題選択成功: {json.dumps(response, indent=2)}")
     except Exception as e:
         print(f"問題選択エラー: {e}")
@@ -38,8 +41,9 @@ def cmd_select(args):
 def cmd_explore(args):
     """探索コマンド"""
     try:
+        client = create_client(api_base=args.api_base)
         plans = args.plans if isinstance(args.plans, list) else [args.plans]
-        response = explore(plans)
+        response = client.explore(plans)
         print(f"探索結果: {json.dumps(response, indent=2)}")
     except Exception as e:
         print(f"探索エラー: {e}")
@@ -49,11 +53,12 @@ def cmd_explore(args):
 def cmd_guess(args):
     """推測提出コマンド"""
     try:
+        client = create_client(api_base=args.api_base)
         # JSONファイルからマップデータを読み取る
         with open(args.map_file, "r") as f:
             map_data = json.load(f)
         
-        response = guess(map_data)
+        response = client.guess(map_data)
         print(f"推測結果: {json.dumps(response, indent=2)}")
         
         if response.get("correct"):
@@ -68,6 +73,14 @@ def cmd_guess(args):
 
 def main():
     parser = argparse.ArgumentParser(description="ICFP 2025 Contest CLI Tool")
+    
+    # グローバルオプション
+    parser.add_argument(
+        "--api-base", 
+        help="API ベース URL（環境変数API_BASEも使用可能、デフォルト: https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com）",
+        default=None
+    )
+    
     subparsers = parser.add_subparsers(dest="command", help="利用可能なコマンド")
     
     # register コマンド
@@ -93,6 +106,10 @@ def main():
     guess_parser.set_defaults(func=cmd_guess)
     
     args = parser.parse_args()
+    
+    # --api-baseが指定されていない場合、環境変数API_BASEを使用
+    if args.api_base is None:
+        args.api_base = os.environ.get('API_BASE')
     
     if not args.command:
         parser.print_help()
