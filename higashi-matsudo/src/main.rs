@@ -1,9 +1,7 @@
-use higashi_matsudo::{ApiClient, BackendType, Connection, GuessRequestMap, Vertex};
-use rand::{Rng, seq::SliceRandom};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use higashi_matsudo::{ApiClient, BackendType};
+use rand::Rng;
 
 const SIX: usize = 6;
-const LABEL: usize = 4;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -11,54 +9,155 @@ fn generate_random_plan(length: usize, rng: &mut impl Rng) -> Vec<usize> {
     (0..length).map(|_| rng.random_range(0..SIX)).collect()
 }
 
-#[derive(Clone)]
-struct Graph {
-    labels: Vec<usize>,
-    g: Vec<[(usize, usize); 6]>,
-}
+// 再構成: N, A(長さL), B(長さL+1) から訪れた部屋番号列(長さL+1)を1つ構成する
+// 重要: A[i] は「入る側（到着先の部屋）でのドア番号」を表す。
+// つまり、R_i から R_{i+1} へ移動したとき、到着先 R_{i+1} のドア A[i] は、出発元 R_i と接続している。
+fn reconstruct_path(n: usize, a: &[usize], b: &[usize]) -> Vec<usize> {
+    assert_eq!(b.len(), a.len() + 1);
 
-impl Graph {
-    fn new(v: usize, rng: &mut impl Rng) -> Self {
-        let mut g = vec![[(0, 0); 6]; v];
+    // colors[v] は部屋 v の色（生成済みであれば Some）。
+    let mut colors: Vec<Option<usize>> = vec![None; n];
+    colors[0] = Some(b[0]);
 
-        let mut candidates = vec![];
-        for i in 0..v {
-            for j in 0..SIX {
-                candidates.push((i, j));
+    // in_edges[v][p] = Some(from) は、部屋 v のドア p（入る側）に接続している出発元の部屋 ID。
+    let mut in_edges: Vec<[Option<usize>; SIX]> = vec![[None; SIX]; n];
+
+    // 現時点で生成済みの部屋数。
+    let mut room_count = 1usize;
+
+    let l = a.len();
+    let mut path: Vec<usize> = vec![0; l + 1];
+
+    // バックトラッキング用の操作ログ
+    enum Action {
+        SetInEdge { room: usize, port: usize },
+        NewRoom { room: usize },
+    }
+    let mut actions: Vec<Action> = Vec::new();
+
+    // 各ステップでの候補と選択位置を管理
+    #[derive(Clone, Copy)]
+    enum Cand {
+        Existing(usize),
+        New,
+    }
+    struct Frame {
+        i: usize,
+        cands: Vec<Cand>,
+        next_idx: usize,
+        actions_len_before: usize,
+    }
+    let mut choice_stack: Vec<Frame> = Vec::new();
+
+    let mut i = 0usize;
+    while i < l {
+        let from = path[i];
+        let port_enter = a[i];
+        let need_color = b[i + 1];
+
+        // 候補生成（優先度順）
+        let mut cands: Vec<Cand> = Vec::new();
+        // 1) 既存で in_edges[v][port]==Some(from)
+        for v in 0..room_count {
+            if colors[v] == Some(need_color) {
+                if let Some(prev_from) = in_edges[v][port_enter] {
+                    if prev_from == from {
+                        cands.push(Cand::Existing(v));
+                    }
+                }
+            }
+        }
+        // 2) 新規
+        if room_count < n {
+            cands.push(Cand::New);
+        }
+        // 3) 既存で in_edges[v][port]==None
+        for v in 0..room_count {
+            if colors[v] == Some(need_color) && in_edges[v][port_enter].is_none() {
+                cands.push(Cand::Existing(v));
             }
         }
 
-        candidates.shuffle(rng);
-
-        while candidates.len() >= 2 {
-            let n = candidates.len();
-            let two = candidates.split_off(n - 2);
-
-            assert_eq!(candidates.len(), n - 2);
-            assert_eq!(two.len(), 2);
-
-            let (v0, door0) = two[0];
-            let (v1, door1) = two[1];
-            g[v0][door0] = (v1, door1);
-            g[v1][door1] = (v0, door0);
+        // 既に選択済みで次候補を試す場合に備え、スタックを参照
+        let mut start_idx = 0usize;
+        if let Some(frame) = choice_stack.last() {
+            if frame.i == i {
+                start_idx = frame.next_idx;
+            } else {
+                // 異なる i に進んだ場合は、新しい候補セットを使う
+            }
         }
 
-        Self {
-            labels: (0..v).map(|_| rng.random_range(0..LABEL)).collect(),
-            g,
+        // 候補がなければバックトラック
+        if cands.is_empty() || start_idx >= cands.len() {
+            // バックトラック
+            let Some(mut frame) = choice_stack.pop() else {
+                // 解なし（理論上は起こらない想定）
+                break;
+            };
+            // 直前の選択で行った操作を巻き戻す（その選択以降のアクションのみ）
+            while actions.len() > frame.actions_len_before {
+                let action = actions.pop().unwrap();
+                match action {
+                    Action::SetInEdge { room, port } => {
+                        in_edges[room][port] = None;
+                    }
+                    Action::NewRoom { room } => {
+                        // その部屋の初期化を戻す
+                        room_count -= 1;
+                        debug_assert_eq!(room, room_count);
+                        colors[room] = None;
+                        in_edges[room] = [None; SIX];
+                    }
+                }
+            }
+            // 前回の候補の次を試す
+            frame.next_idx += 1;
+            if frame.next_idx < frame.cands.len() {
+                let prev_i = frame.i;
+                choice_stack.push(frame);
+                i = prev_i; // その位置から再試行
+                continue;
+            } else {
+                // さらにバックトラック
+                i = frame.i; // 位置だけ戻す（ループ先頭で更にpopされる）
+                continue;
+            }
+        }
+
+        // 今回の候補セットを記録（start_idx から試す）
+        let actions_len_before = actions.len();
+        choice_stack.push(Frame { i, cands: cands.clone(), next_idx: start_idx, actions_len_before });
+
+        let cand = cands[start_idx];
+        match cand {
+            Cand::Existing(to) => {
+                if in_edges[to][port_enter].is_none() {
+                    in_edges[to][port_enter] = Some(from);
+                    actions.push(Action::SetInEdge { room: to, port: port_enter });
+                }
+                // 色は既に一致している前提
+                path[i + 1] = to;
+                i += 1;
+            }
+            Cand::New => {
+                let to = room_count;
+                // 新規作成
+                colors[to] = Some(need_color);
+                in_edges[to] = [None; SIX];
+                room_count += 1;
+                actions.push(Action::NewRoom { room: to });
+                // in_edges を接続
+                in_edges[to][port_enter] = Some(from);
+                actions.push(Action::SetInEdge { room: to, port: port_enter });
+
+                path[i + 1] = to;
+                i += 1;
+            }
         }
     }
 
-    fn run(&self, plan: &[usize]) -> Vec<usize> {
-        let mut result = vec![self.labels[0]];
-        let mut cur = 0;
-        for &door in plan {
-            let (next, _) = self.g[cur][door];
-            result.push(self.labels[next]);
-            cur = next;
-        }
-        result
-    }
+    path
 }
 
 #[tokio::main]
@@ -66,175 +165,58 @@ async fn main() -> Result<()> {
     let mut rng = rand::rng();
     let client = ApiClient::new(BackendType::Mock)?;
 
-    let n = client.select("probatio").await?;
-    let plan = generate_random_plan(n * 18, &mut rng);
-    let result = client.explore(&plan).await?;
-    loop {
-        let (best, score) = (0..20)
-            .into_par_iter()
-            .map(|_| {
-                let mut rng = rand::rng();
-                let (graph, score) =
-                    simulated_annealing(&Graph::new(n, &mut rng), &mut rng, &plan, &result);
-                (graph, score)
-            })
-            .min_by_key(|(_, score)| *score)
-            .unwrap();
-        println!("Score: {}", score);
-        if score == 0 {
-            let mut connections = vec![];
-            let rooms = best.labels;
-            for (from, edges) in best.g.into_iter().enumerate() {
-                for (from_door, (next, next_door)) in edges.into_iter().enumerate() {
-                    let from = (from, from_door);
-                    let to = (next, next_door);
-                    if from > to {
-                        continue;
-                    }
-                    connections.push(Connection {
-                        from: Vertex {
-                            room: from.0,
-                            door: from.1,
-                        },
-                        to: Vertex {
-                            room: to.0,
-                            door: to.1,
-                        },
-                    });
-                }
-            }
+    // 部屋の数
+    let n = client.select("secundus").await?;
 
-            let correct = client
-                .guess(&GuessRequestMap {
-                    rooms,
-                    starting_room: 0,
-                    connections,
-                })
-                .await?;
-            if correct {
-                println!("Correct!");
-                break;
-            }
+    // 移動の履歴
+    let a = generate_random_plan(n * 18, &mut rng);
 
-            break;
+    // 移動した部屋の色
+    let b = client.explore(&a).await?;
+
+    // 訪れた部屋番号列を再構成（複数解のうち1つ）
+    let rooms_path = reconstruct_path(n, &a, &b);
+
+    // 出力の検証
+    assert_eq!(rooms_path.len(), a.len() + 1);
+
+    // 入る側の検証: 到着先 to のドア a[i] は、出発元 from と一意に接続されているべき
+    let mut graph_in = vec![vec![None; SIX]; n];
+    for (i, &door_enter) in a.iter().enumerate() {
+        let from = rooms_path[i];
+        let to = rooms_path[i + 1];
+        match graph_in[to][door_enter] {
+            None => {
+                graph_in[to][door_enter] = Some(from);
+            }
+            Some(prev) => {
+                assert_eq!(
+                    prev, from,
+                    "a={:?}, b={:?}, the entering door {door_enter} of room {to} is already connected from {prev}, but trying to connect from {from}",
+                    a, b
+                );
+            }
         }
     }
+
+    let mut colors = vec![None; n];
+    for (i, &color) in b.iter().enumerate() {
+        let room = rooms_path[i];
+        match colors[room] {
+            None => {
+                colors[room] = Some(color);
+            }
+            Some(prev) => {
+                assert_eq!(
+                    prev, color,
+                    "a={:?}, b={:?}, the room color of {room} is already defined as {prev}, but trying to define as {color}",
+                    a, b
+                );
+            }
+        }
+    }
+
+    println!("ooooooooo");
+
     Ok(())
-}
-
-fn switch_label(graph: &mut Graph, rng: &mut impl Rng) {
-    let v = rng.random_range(0..graph.labels.len());
-    let label = rng.random_range(0..LABEL);
-    graph.labels[v] = label;
-}
-
-fn switch_edge(graph: &mut Graph, rng: &mut impl Rng) {
-    let n = graph.labels.len();
-    loop {
-        let v0 = rng.random_range(0..n);
-        let v1 = rng.random_range(0..n);
-        let door0 = rng.random_range(0..SIX);
-        let door1 = rng.random_range(0..SIX);
-        let from0 = (v0, door0);
-        let from1 = (v1, door1);
-        if from0 == from1 {
-            continue;
-        }
-        let to0 = graph.g[v0][door0];
-        if to0 == from1 {
-            continue;
-        }
-        let to1 = graph.g[v1][door1];
-
-        graph.g[from0.0][from0.1] = to1;
-        graph.g[from1.0][from1.1] = to0;
-        graph.g[to0.0][to0.1] = from1;
-        graph.g[to1.0][to1.1] = from0;
-        break;
-    }
-}
-
-fn score(graph: &Graph, plan: &[usize], result: &[usize]) -> usize {
-    let current = graph.run(plan);
-    assert_eq!(current.len(), result.len());
-    let n = current.len();
-
-    let mut dp = vec![vec![0; n + 1]; n + 1];
-    for i in 0..=n {
-        for j in 0..=n {
-            dp[i][j] = if i == 0 && j == 0 {
-                0
-            } else if i == 0 {
-                j
-            } else if j == 0 {
-                i
-            } else {
-                dp[i - 1][j - 1]
-                    + if current[i - 1] == result[j - 1] {
-                        0
-                    } else {
-                        1
-                    }
-            };
-        }
-    }
-    dp[current.len()][result.len()]
-}
-
-fn simulated_annealing(
-    graph: &Graph,
-    rng: &mut impl Rng,
-    plan: &[usize],
-    result: &[usize],
-) -> (Graph, usize) {
-    let mut best_score = score(graph, plan, result);
-    let mut best_graph = graph.clone();
-    let mut current_score = best_score;
-    let mut current_graph = graph.clone();
-    // 反復ベースの指数冷却
-    const MAX_STEPS: usize = 400_000;
-    const T0: f64 = 5.0;
-    const T_END: f64 = 0.001;
-    let mut steps = 0usize;
-    for step in 0..MAX_STEPS {
-        let progress = step as f64 / MAX_STEPS as f64;
-        let temperature = T0 * (T_END / T0).powf(progress);
-        let mut new_graph = current_graph.clone();
-
-        if rng.random_range(0.0..1.0) < 0.5 + 0.3 * progress {
-            switch_label(&mut new_graph, rng);
-        } else {
-            switch_edge(&mut new_graph, rng);
-        }
-
-        let new_score = score(&new_graph, plan, result);
-        if new_score <= current_score {
-            current_score = new_score;
-            current_graph = new_graph;
-            if current_score < best_score {
-                best_score = current_score;
-                best_graph = current_graph.clone();
-            }
-        } else {
-            let delta = (new_score - current_score) as f64;
-            let probability = (-delta / temperature).exp();
-            if rng.random_range(0.0..1.0) < probability {
-                current_score = new_score;
-                current_graph = new_graph;
-            }
-        }
-        steps += 1;
-        if steps % 10000 == 0 {
-            println!(
-                "Steps: {}  Temp: {:.4}  Current: {}  Best: {}",
-                steps, temperature, current_score, best_score
-            );
-        }
-
-        if best_score == 0 {
-            break;
-        }
-    }
-
-    (best_graph, best_score)
 }
