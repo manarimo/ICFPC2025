@@ -1,83 +1,11 @@
+use higashi_matsudo::{ApiClient, BackendType, Connection, GuessRequestMap, Vertex};
 use rand::{Rng, seq::SliceRandom};
-use reqwest::header::HeaderMap;
-use serde::Deserialize;
-use serde_json::json;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 const SIX: usize = 6;
 const LABEL: usize = 4;
 
-const BASE_URL: &str = "https://wizardry-553250624194.asia-northeast1.run.app/api";
-const ID: &str = "kenkoooo";
-
-const PROBLEMS: [(&str, usize); 6] = [
-    ("probatio", 3),
-    ("primus", 6),
-    ("secundus", 12),
-    ("tertius", 18),
-    ("quartus", 24),
-    ("quintus", 30),
-];
-
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-struct ApiClient {
-    client: reqwest::Client,
-}
-
-impl ApiClient {
-    fn new() -> Result<Self> {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-backend-type", "mock".parse()?);
-        let client = reqwest::Client::builder()
-            .default_headers(headers)
-            .build()?;
-        Ok(Self { client })
-    }
-
-    async fn select(&self, problem_name: &str) -> Result<usize> {
-        let problem = PROBLEMS
-            .iter()
-            .find(|(name, _)| *name == problem_name)
-            .ok_or("error: problem not found")?;
-        let url = format!("{BASE_URL}/select");
-        self.client
-            .post(url)
-            .json(&json!({
-                "id": ID,
-                "problemName": problem.0,
-            }))
-            .send()
-            .await?;
-        Ok(problem.1)
-    }
-
-    async fn explore(&self, plan: &[usize]) -> Result<Vec<usize>> {
-        let url = format!("{BASE_URL}/explore");
-        let plan = plan
-            .iter()
-            .map(|&x| x.to_string().chars().collect::<Vec<char>>())
-            .flatten()
-            .collect::<String>();
-        let response = self
-            .client
-            .post(url)
-            .json(&json!({
-                "id": ID,
-                "plans": [plan],
-            }))
-            .send()
-            .await?;
-
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Response {
-            results: Vec<Vec<usize>>,
-        }
-
-        let response = response.json::<Response>().await?;
-        Ok(response.results.into_iter().flatten().collect())
-    }
-}
 
 fn generate_random_plan(length: usize, rng: &mut impl Rng) -> Vec<usize> {
     (0..length).map(|_| rng.random_range(0..SIX)).collect()
@@ -136,14 +64,61 @@ impl Graph {
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut rng = rand::rng();
-    let client = ApiClient::new()?;
+    let client = ApiClient::new(BackendType::Mock)?;
 
     let n = client.select("probatio").await?;
     let plan = generate_random_plan(n * 18, &mut rng);
     let result = client.explore(&plan).await?;
-    let (graph, _) = simulated_annealing(&Graph::new(n, &mut rng), &mut rng, &plan, &result);
-    println!("Score: {}", score(&graph, &plan, &result));
+    loop {
+        let (best, score) = (0..20)
+            .into_par_iter()
+            .map(|_| {
+                let mut rng = rand::rng();
+                let (graph, score) =
+                    simulated_annealing(&Graph::new(n, &mut rng), &mut rng, &plan, &result);
+                (graph, score)
+            })
+            .min_by_key(|(_, score)| *score)
+            .unwrap();
+        println!("Score: {}", score);
+        if score == 0 {
+            let mut connections = vec![];
+            let rooms = best.labels;
+            for (from, edges) in best.g.into_iter().enumerate() {
+                for (from_door, (next, next_door)) in edges.into_iter().enumerate() {
+                    let from = (from, from_door);
+                    let to = (next, next_door);
+                    if from > to {
+                        continue;
+                    }
+                    connections.push(Connection {
+                        from: Vertex {
+                            room: from.0,
+                            door: from.1,
+                        },
+                        to: Vertex {
+                            room: to.0,
+                            door: to.1,
+                        },
+                    });
+                }
+            }
 
+            let correct = client
+                .guess(&GuessRequestMap {
+                    rooms,
+                    starting_room: 0,
+                    connections,
+                })
+                .await?;
+            if correct {
+                println!("Correct!");
+                break;
+            }
+
+            break;
+        }
+    }
     Ok(())
 }
 
@@ -217,16 +192,16 @@ fn simulated_annealing(
     let mut current_score = best_score;
     let mut current_graph = graph.clone();
     // 反復ベースの指数冷却
-    let max_steps: usize = 50000;
-    let t0: f64 = 5.0;
-    let t_end: f64 = 0.01;
+    const MAX_STEPS: usize = 400_000;
+    const T0: f64 = 5.0;
+    const T_END: f64 = 0.001;
     let mut steps = 0usize;
-    for step in 0..max_steps {
-        let progress = step as f64 / max_steps as f64;
-        let temperature = t0 * (t_end / t0).powf(progress);
+    for step in 0..MAX_STEPS {
+        let progress = step as f64 / MAX_STEPS as f64;
+        let temperature = T0 * (T_END / T0).powf(progress);
         let mut new_graph = current_graph.clone();
 
-        if rng.random_range(0.0..1.0) < 0.5 {
+        if rng.random_range(0.0..1.0) < 0.5 + 0.3 * progress {
             switch_label(&mut new_graph, rng);
         } else {
             switch_edge(&mut new_graph, rng);
@@ -249,8 +224,11 @@ fn simulated_annealing(
             }
         }
         steps += 1;
-        if steps % 1000 == 0 {
-            println!("Steps: {}  Temp: {:.4}  Current: {}  Best: {}", steps, temperature, current_score, best_score);
+        if steps % 10000 == 0 {
+            println!(
+                "Steps: {}  Temp: {:.4}  Current: {}  Best: {}",
+                steps, temperature, current_score, best_score
+            );
         }
 
         if best_score == 0 {
