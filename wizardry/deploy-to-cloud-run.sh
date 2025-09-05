@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Google Cloud Run Deployment Script for ICFP Wizardry
+
+# Configuration - Update these values as needed
+PROJECT_ID="manarimo-icfpc2025"
+SERVICE_NAME="wizardry"
+REGION="asia-northeast1"
+IMAGE_NAME="gcr.io/$PROJECT_ID/$SERVICE_NAME"
+
+echo "🚀 Deploying ICFP Wizardry to Google Cloud Run"
+echo "Project ID: $PROJECT_ID"
+echo "Service Name: $SERVICE_NAME"
+echo "Region: $REGION"
+
+# Build and tag the Docker image
+echo "📦 Building Docker image..."
+docker build -t $SERVICE_NAME .
+
+# Tag the image for Google Container Registry
+echo "🏷️  Tagging image for GCR..."
+docker tag $SERVICE_NAME $IMAGE_NAME
+
+# Push the image to Google Container Registry
+echo "☁️  Pushing image to Google Container Registry..."
+docker push $IMAGE_NAME
+
+# Deploy to Cloud Run
+echo "🚀 Deploying to Cloud Run..."
+gcloud run deploy $SERVICE_NAME \
+  --image $IMAGE_NAME \
+  --platform managed \
+  --region $REGION \
+  --allow-unauthenticated \
+  --port 3000 \
+  --memory 1Gi \
+  --cpu 1 \
+  --concurrency 80 \
+  --min-instances 0 \
+  --max-instances 10 \
+  --set-env-vars="NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1,NEXT_PUBLIC_API_BASE_URL=/api,ICFP_API_BASE_URL=https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com"
+
+echo "✅ Deployment completed!"
+echo "Your application should be available at:"
+gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)'
