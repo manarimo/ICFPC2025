@@ -407,8 +407,10 @@ def main():
     # ソルバーを作成
     solver = SimulatedAnnealingSolver()
     
-    problem_name = "primus"
-    num_rooms = 6
+    # problem_name = "primus"
+    # num_rooms = 6
+    problem_name = "probatio"
+    num_rooms = 3
     plan_length = num_rooms * 18
     
     # 目標データを収集
@@ -420,7 +422,7 @@ def main():
         plan=plan,
         num_rooms=num_rooms,
         max_iterations=200000,
-        initial_temp=10.0,
+        initial_temp=50.0,
         terminal_temp=0.01
     )
     
