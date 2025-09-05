@@ -2,72 +2,68 @@ import api
 import random
 import math
 import copy
+import multiprocessing
+import os
 from typing import List, Dict, Any, Tuple
 from aedificium import Aedificium, create_random_aedificium
 
 
-class SimulatedAnnealingSolver:
-    """焼きなまし法でAedificiumの構造を推定するソルバー"""
+def validate_constraints(aedificium: Aedificium) -> bool:
+    """
+    全ドア1回使用の制約をチェックする
     
-    def __init__(self):
-        pass
+    Args:
+        aedificium: チェック対象のAedificium
+        
+    Returns:
+        bool: 制約を満たしている場合True
+    """
+    num_rooms = len(aedificium.rooms)
+    used_doors = set()
     
-    def validate_constraints(self, aedificium: Aedificium) -> bool:
-        """
-        全ドア1回使用の制約をチェックする
+    for conn in aedificium.connections:
+        from_door = (conn["from"]["room"], conn["from"]["door"])
+        to_door = (conn["to"]["room"], conn["to"]["door"])
         
-        Args:
-            aedificium: チェック対象のAedificium
+        # 既に使われているドアがないかチェック
+        if from_door in used_doors or to_door in used_doors:
+            return False
             
-        Returns:
-            bool: 制約を満たしている場合True
-        """
-        num_rooms = len(aedificium.rooms)
-        used_doors = set()
-        
-        for conn in aedificium.connections:
-            from_door = (conn["from"]["room"], conn["from"]["door"])
-            to_door = (conn["to"]["room"], conn["to"]["door"])
-            
-            # 既に使われているドアがないかチェック
-            if from_door in used_doors or to_door in used_doors:
-                return False
-                
-            used_doors.add(from_door)
-            used_doors.add(to_door)
-        
-        # 全てのドア（各部屋の0-5）が使われているかチェック
-        expected_doors = set()
-        for room in range(num_rooms):
-            for door in range(6):
-                expected_doors.add((room, door))
-        
-        return used_doors == expected_doors
+        used_doors.add(from_door)
+        used_doors.add(to_door)
     
-    def evaluate_fitness(self, aedificium: Aedificium, target_result: List[int], plan: str) -> int:
-        """
-        評価関数：保存した結果との一致度を計算
-        
-        Args:
-            aedificium: 評価対象のAedificium
-            target_result: 目標となる探索結果
-            plan: 使用するプラン
-            
-        Returns:
-            int: 一致した要素の数（大きいほど良い）
-        """
-        # 同じプランでシミュレーション実行
-        try:
-            simulated_result = aedificium._execute_plan(plan)
-            
-            # 一致度を計算
-            matches = sum(1 for a, b in zip(target_result, simulated_result) if a == b)
-            return matches
-        except Exception:
-            # エラーが発生した場合は最低評価
-            return 0
+    # 全てのドア（各部屋の0-5）が使われているかチェック
+    expected_doors = set()
+    for room in range(num_rooms):
+        for door in range(6):
+            expected_doors.add((room, door))
     
-    def mutate_room_label(self, aedificium: Aedificium) -> Aedificium:
+    return used_doors == expected_doors
+    
+def evaluate_fitness(aedificium: Aedificium, target_result: List[int], plan: str) -> int:
+    """
+    評価関数：保存した結果との一致度を計算
+    
+    Args:
+        aedificium: 評価対象のAedificium
+        target_result: 目標となる探索結果
+        plan: 使用するプラン
+        
+    Returns:
+        int: 一致した要素の数（大きいほど良い）
+    """
+    # 同じプランでシミュレーション実行
+    try:
+        simulated_result = aedificium._execute_plan(plan)
+        
+        # 一致度を計算
+        matches = sum(1 for a, b in zip(target_result, simulated_result) if a == b)
+        return matches
+    except Exception:
+        # エラーが発生した場合は最低評価
+        return 0
+    
+def mutate_room_label(aedificium: Aedificium) -> Aedificium:
         """
         局所変更：2つの部屋のラベル（2bit整数）をスワップ
         
@@ -99,7 +95,7 @@ class SimulatedAnnealingSolver:
         
         return new_aed
     
-    def mutate_connection_swap(self, aedificium: Aedificium) -> Aedificium:
+def mutate_connection_swap(aedificium: Aedificium) -> Aedificium:
         """
         局所変更：2つの接続を選び、それらのエンドポイントを入れ替える
         全ドア1回使用の制約を維持する
@@ -149,7 +145,7 @@ class SimulatedAnnealingSolver:
         
         return new_aed
     
-    def mutate_self_loop_to_connection(self, aedificium: Aedificium) -> Aedificium:
+def mutate_self_loop_to_connection(aedificium: Aedificium) -> Aedificium:
         """
         局所変更：自己閉路を2つ選び、それらに変わり、閉路があった2点を結ぶ
         
@@ -201,7 +197,7 @@ class SimulatedAnnealingSolver:
         
         return new_aed
     
-    def mutate_connection_to_self_loops(self, aedificium: Aedificium) -> Aedificium:
+def mutate_connection_to_self_loops(aedificium: Aedificium) -> Aedificium:
         """
         局所変更：自己閉路でないものを1つ選び、それに変わり、それぞれのfrom, toに自己閉路を追加
         
@@ -254,7 +250,7 @@ class SimulatedAnnealingSolver:
         
         return new_aed
     
-    def get_random_mutation(self, aedificium: Aedificium) -> Aedificium:
+def get_random_mutation(aedificium: Aedificium) -> Aedificium:
         """
         ランダムな局所変更を適用（制約を満たす場合のみ）
         
@@ -265,10 +261,10 @@ class SimulatedAnnealingSolver:
             Aedificium: 変更後のAedificium
         """
         mutation_functions = [
-            self.mutate_room_label,
-            self.mutate_connection_swap,
-            self.mutate_self_loop_to_connection,
-            self.mutate_connection_to_self_loops
+            mutate_room_label,
+            mutate_connection_swap,
+            mutate_self_loop_to_connection,
+            mutate_connection_to_self_loops
         ]
         
         # 最大10回試行して制約を満たす変更を見つける
@@ -278,15 +274,43 @@ class SimulatedAnnealingSolver:
             candidate = mutation_func(aedificium)
             
             # 制約をチェック
-            if self.validate_constraints(candidate):
+            if validate_constraints(candidate):
                 return candidate
         
         # 制約を満たす変更が見つからない場合は元の解を返す
         return aedificium
+
+
+def solve_with_seed(args):
+    """
+    並列実行用のsolve関数ラッパー
+    各プロセスで異なる乱数状態を初期化する
     
-    def solve(self, target_result: List[int], plan: str, num_rooms: int = 3, 
-              max_iterations: int = 10000, initial_temp: float = 100.0, 
-              terminal_temp: float = 0.01) -> Aedificium:
+    Args:
+        args: (process_id, target_result, plan, num_rooms, max_iterations, initial_temp, terminal_temp)
+        
+    Returns:
+        Tuple[Aedificium, int]: (推定されたAedificium, 適合度)
+    """
+    process_id, target_result, plan, num_rooms, max_iterations, initial_temp, terminal_temp = args
+    
+    # 各プロセスで異なる乱数シードを設定
+    # プロセスIDとプロセス固有の値を組み合わせてシードを作成
+    seed = (os.getpid() * 1000 + process_id) % (2**32)
+    random.seed(seed)
+    
+    print(f"プロセス {process_id} (PID: {os.getpid()}): 乱数シード = {seed}")
+    
+    # solve関数を実行
+    solution = solve(target_result, plan, num_rooms, max_iterations, initial_temp, terminal_temp)
+    fitness = evaluate_fitness(solution, target_result, plan)
+    
+    return solution, fitness
+
+
+def solve(target_result: List[int], plan: str, num_rooms: int = 3, 
+          max_iterations: int = 10000, initial_temp: float = 100.0, 
+          terminal_temp: float = 0.01) -> Aedificium:
         """
         焼きなまし法でAedificiumを推定
         
@@ -307,14 +331,14 @@ class SimulatedAnnealingSolver:
         current_solution = None
         for attempt in range(100):
             candidate = create_random_aedificium(num_rooms)
-            if self.validate_constraints(candidate):
+            if validate_constraints(candidate):
                 current_solution = candidate
                 break
         
         if current_solution is None:
             raise RuntimeError("制約を満たす初期解が生成できませんでした")
         
-        current_fitness = self.evaluate_fitness(current_solution, target_result, plan)
+        current_fitness = evaluate_fitness(current_solution, target_result, plan)
         
         best_solution = copy.deepcopy(current_solution)
         best_fitness = current_fitness
@@ -331,8 +355,8 @@ class SimulatedAnnealingSolver:
         
         for iteration in range(max_iterations):
             # 局所変更を適用
-            new_solution = self.get_random_mutation(current_solution)
-            new_fitness = self.evaluate_fitness(new_solution, target_result, plan)
+            new_solution = get_random_mutation(current_solution)
+            new_fitness = evaluate_fitness(new_solution, target_result, plan)
             
             # 適合度の差を計算
             delta = new_fitness - current_fitness
@@ -405,45 +429,67 @@ def collect_target_data(api_client: api.APIClient, problem_name: str, plan_lengt
 def try_solve():
     """メイン関数"""
     # APIクライアントを作成
-    # api_base, api_id = "http://localhost:8000", "esports_complex"  # ローカルテスト用
-    api_base, api_id = (
-        "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com", 
-        "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ"
-    )  # 本番用
+    api_base, api_id = "http://localhost:8000", "esports_complex"  # ローカルテスト用
+    # api_base, api_id = (
+    #     "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com", 
+    #     "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ"
+    # )  # 本番用
 
     client = api.create_client(api_base=api_base, api_id=api_id)
     
-    # ソルバーを作成
-    solver = SimulatedAnnealingSolver()
-    
-    problem_name = "primus"
-    num_rooms = 6
-    # problem_name = "probatio"
-    # num_rooms = 3
+    # problem_name = "secundus"
+    # num_rooms = 12
+    problem_name = "probatio"
+    num_rooms = 3
     plan_length = num_rooms * 18
     
     # 目標データを収集
     target_result, plan = collect_target_data(client, problem_name, plan_length)
     
-    # 焼きなまし法で解く
-    estimated_aedificium = solver.solve(
-        target_result=target_result,
-        plan=plan,
-        num_rooms=num_rooms,
-        max_iterations=400000,
-        initial_temp=50.0,
-        terminal_temp=0.01
-    )
+    # 並列実行のパラメータ設定
+    num_processes = max(multiprocessing.cpu_count() - 1, 1)  # CPUコア数に基づいて並列度を決定
+    
+    print(f"並列実行開始: {num_processes}プロセス")
+    
+    # 各プロセス用の引数を準備
+    process_args = []
+    for i in range(num_processes):
+        args = (
+            i,  # process_id
+            target_result,
+            plan, 
+            num_rooms,
+            400000,
+            50.0,  # initial_temp
+            0.01   # terminal_temp
+        )
+        process_args.append(args)
+    
+    # 並列実行
+    with multiprocessing.Pool(processes=num_processes) as pool:
+        results = pool.map(solve_with_seed, process_args)
+    
+    # 最良の結果を選択
+    best_solution = None
+    best_fitness = -1
+    
+    for i, (solution, fitness) in enumerate(results):
+        print(f"プロセス {i}: 適合度 = {fitness}/{len(target_result)}")
+        if fitness > best_fitness:
+            best_solution = solution
+            best_fitness = fitness
+    
+    estimated_aedificium = best_solution
+    
+    print(f"\n=== 並列実行結果 ===")
+    print(f"最良解の適合度: {best_fitness}/{len(target_result)}")
+    print(f"使用したプロセス数: {num_processes}")
     
     print("\n=== 推定結果 ===")
     print(f"部屋ラベル: {estimated_aedificium.rooms}")
     print(f"開始部屋: {estimated_aedificium.starting_room}")
     print(f"接続数: {len(estimated_aedificium.connections)}")
-    
-    # 制約チェック
-    constraints_ok = solver.validate_constraints(estimated_aedificium)
-    print(f"制約チェック: {'OK' if constraints_ok else 'NG'}")
-    
+
     # 自己閉路の数をカウント
     self_loops = sum(1 for conn in estimated_aedificium.connections 
                      if (conn["from"]["room"] == conn["to"]["room"] and 
@@ -451,8 +497,8 @@ def try_solve():
     print(f"自己閉路数: {self_loops}")
     print(f"通常接続数: {len(estimated_aedificium.connections) - self_loops}")
     
-    # 最終的な適合度を確認
-    final_fitness = solver.evaluate_fitness(estimated_aedificium, target_result, plan)
+    # 最終的な適合度を確認（並列実行で得られた最良適合度を使用）
+    final_fitness = best_fitness
     print(f"最終適合度: {final_fitness}/{len(target_result)}")
 
     if final_fitness == len(target_result):
@@ -475,4 +521,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # multiprocessingのためのメイン実行ブロック
+    multiprocessing.set_start_method('spawn', force=True)  # macOSでの互換性のため
     main()
