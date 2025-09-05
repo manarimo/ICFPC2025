@@ -5,6 +5,7 @@ import { GameState } from '@/types/api';
 import { SessionSetup } from '@/components/SessionSetup';
 import { ExplorePanel } from '@/components/ExplorePanel';
 import { GuessPanel } from '@/components/GuessPanel';
+import { BackendToggle } from '@/components/BackendToggle';
 import { storage } from '@/lib/storage';
 
 export default function Home() {
@@ -48,6 +49,8 @@ export default function Home() {
         <h1 className="text-3xl font-bold text-center mb-8 text-gray-900">
           ICFP 2025 Library Mapping Tool
         </h1>
+        
+        <BackendToggle />
         
         {!gameState ? (
           <SessionSetup onSessionStart={handleSessionStart} />

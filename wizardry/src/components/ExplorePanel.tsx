@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { GameState } from '@/types/api';
-import { apiClient } from '@/lib/api';
+import { useBackend } from '@/contexts/BackendContext';
 
 interface ExplorePanelProps {
   gameState: GameState;
@@ -10,6 +10,7 @@ interface ExplorePanelProps {
 }
 
 export function ExplorePanel({ gameState, onUpdateGameState }: ExplorePanelProps) {
+  const { apiClient } = useBackend();
   const [routeInput, setRouteInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');

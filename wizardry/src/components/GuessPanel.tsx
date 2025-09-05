@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { GameState } from '@/types/api';
-import { apiClient } from '@/lib/api';
+import { useBackend } from '@/contexts/BackendContext';
 
 interface GuessPanelProps {
   gameState: GameState;
@@ -10,6 +10,7 @@ interface GuessPanelProps {
 }
 
 export function GuessPanel({ gameState, onUpdateGameState }: GuessPanelProps) {
+  const { apiClient } = useBackend();
   const [numRooms, setNumRooms] = useState('1');
   const [roomInputs, setRoomInputs] = useState<string[]>(['']);
   const [startingRoom, setStartingRoom] = useState('0');

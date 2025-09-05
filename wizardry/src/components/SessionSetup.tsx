@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { apiClient } from '@/lib/api';
+import { useBackend } from '@/contexts/BackendContext';
 import { storage } from '@/lib/storage';
 
 interface SessionSetupProps {
@@ -9,6 +9,7 @@ interface SessionSetupProps {
 }
 
 export function SessionSetup({ onSessionStart }: SessionSetupProps) {
+  const { apiClient } = useBackend();
   const [teamId, setTeamId] = useState('');
   const [problemName, setProblemName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
