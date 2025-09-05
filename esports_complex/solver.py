@@ -265,7 +265,7 @@ class SimulatedAnnealingSolver:
         # 最大10回試行して制約を満たす変更を見つける
         for _ in range(10):
             # ランダムに変更方法を選択
-            mutation_func = random.choices(mutation_functions, weights=[3, 5, 1, 1])[0]
+            mutation_func = random.choices(mutation_functions, weights=[1, 7, 1, 1])[0]
             candidate = mutation_func(aedificium)
             
             # 制約をチェック
@@ -277,7 +277,7 @@ class SimulatedAnnealingSolver:
     
     def solve(self, target_result: List[int], plan: str, num_rooms: int = 3, 
               max_iterations: int = 10000, initial_temp: float = 100.0, 
-              cooling_rate: float = 0.999) -> Aedificium:
+              terminal_temp: float = 0.01) -> Aedificium:
         """
         焼きなまし法でAedificiumを推定
         
@@ -287,7 +287,7 @@ class SimulatedAnnealingSolver:
             num_rooms: 部屋数
             max_iterations: 最大反復回数
             initial_temp: 初期温度
-            cooling_rate: 冷却率
+            terminal_temp: 終了温度
             
         Returns:
             Aedificium: 推定されたAedificium
@@ -310,9 +310,15 @@ class SimulatedAnnealingSolver:
         best_solution = copy.deepcopy(current_solution)
         best_fitness = current_fitness
         
+        # 指数関数による温度低減のパラメータを計算
+        # T(t) = initial_temp * exp(-α * t / max_iterations)
+        # terminal_temp = initial_temp * exp(-α) より α = -ln(terminal_temp / initial_temp)
+        alpha = -math.log(terminal_temp / initial_temp)
+        
         temperature = initial_temp
         
         print(f"初期解の適合度: {current_fitness}/{len(target_result)}")
+        print(f"温度設定: 初期={initial_temp}, 終了={terminal_temp}, α={alpha:.6f}")
         
         for iteration in range(max_iterations):
             # 局所変更を適用
@@ -342,8 +348,9 @@ class SimulatedAnnealingSolver:
                     best_fitness = current_fitness
                     print(f"反復 {iteration}: 新しい最良解 適合度={best_fitness}/{len(target_result)}")
             
-            # 温度を下げる
-            temperature *= cooling_rate
+            # 温度を指数関数で下げる
+            progress = (iteration + 1) / max_iterations
+            temperature = initial_temp * math.exp(-alpha * progress)
             
             # 進捗表示
             if iteration % 1000 == 0:
@@ -413,8 +420,8 @@ def main():
         plan=plan,
         num_rooms=num_rooms,
         max_iterations=200000,
-        initial_temp=500.0,
-        cooling_rate=0.9999
+        initial_temp=10.0,
+        terminal_temp=0.01
     )
     
     print("\n=== 推定結果 ===")
