@@ -38,7 +38,6 @@ gcloud run deploy $SERVICE_NAME \
   --concurrency 80 \
   --min-instances 0 \
   --max-instances 10 \
-  --set-env-vars="PYTHONUNBUFFERED=1"
 
 echo "✅ Deployment completed!"
 echo "Your API should be available at:"

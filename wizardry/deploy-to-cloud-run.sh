@@ -38,7 +38,6 @@ gcloud run deploy $SERVICE_NAME \
   --concurrency 80 \
   --min-instances 0 \
   --max-instances 10 \
-  --set-env-vars="NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1,NEXT_PUBLIC_API_BASE_URL=/api,ICFP_API_BASE_URL=https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com"
 
 echo "✅ Deployment completed!"
 echo "Your application should be available at:"
