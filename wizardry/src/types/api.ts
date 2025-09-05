@@ -40,6 +40,23 @@ export interface GuessResponse {
   correct: boolean;
 }
 
+export interface SpoilerRequest {
+  id: string;
+}
+
+export interface SpoilerResponse {
+  map: {
+    rooms: number[];
+    startingRoom: number;
+    connections: Array<
+      {
+        from: { room: number, door: number },
+        to: { room: number, door: number }
+      }
+    >;
+  };
+}
+
 export interface GameState {
   teamId: string;
   problemName: string;

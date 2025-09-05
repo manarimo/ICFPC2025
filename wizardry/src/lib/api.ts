@@ -1,4 +1,4 @@
-import { SelectRequest, SelectResponse, ExploreRequest, ExploreResponse, GuessRequest, GuessResponse } from '@/types/api';
+import { SelectRequest, SelectResponse, ExploreRequest, ExploreResponse, GuessRequest, GuessResponse, SpoilerRequest, SpoilerResponse } from '@/types/api';
 import { BackendType } from '@/contexts/BackendContext';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://icfpcontest2025.github.io';
@@ -37,6 +37,10 @@ export class ApiClient {
 
   async guess(request: GuessRequest): Promise<GuessResponse> {
     return this.makeRequest<GuessResponse>('/guess', request);
+  }
+
+  async spoiler(request: SpoilerRequest): Promise<SpoilerResponse> {
+    return this.makeRequest<SpoilerResponse>('/spoiler', request);
   }
 }
 
