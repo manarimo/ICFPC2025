@@ -6,6 +6,7 @@ ICFP Contest 2025 Mock API Server
 
 import json
 import re
+import os
 from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -40,11 +41,119 @@ class IdStates:
         """状態をクリアする"""
         self.aedificium = None
         self.query_count = 0
+    
+    def to_dict(self) -> dict:
+        """状態を辞書形式にシリアライズする"""
+        return {
+            "aedificium": self.aedificium.to_dict() if self.aedificium else None,
+            "query_count": self.query_count
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'IdStates':
+        """辞書形式から状態を復元する"""
+        instance = cls()
+        instance.aedificium = Aedificium.from_dict(data["aedificium"]) if data["aedificium"] else None
+        instance.query_count = data.get("query_count", 0)
+        return instance
 
 
-# id事に状態を管理するdefaultdict
-# 各idに対してIdStatesオブジェクトを自動生成して保持
-id_states = defaultdict(IdStates)
+class PersistentStateManager:
+    """永続化された状態を管理するクラス"""
+    
+    def __init__(self, persistence_dir: str = None):
+        self.persistence_dir = persistence_dir
+        self._states = defaultdict(IdStates)
+        
+        # 初期化時にディレクトリから既存の状態ファイルを読み込む
+        if self.persistence_dir:
+            self._load_existing_states()
+    
+    def __getitem__(self, user_id: str) -> IdStates:
+        """指定されたユーザーIDの状態を取得する"""
+        # まだメモリに読み込まれていない場合はファイルから読み込む
+        if user_id not in self._states and self.persistence_dir:
+            self._load_user_state(user_id)
+        return self._states[user_id]
+    
+    def _get_user_file_path(self, user_id: str) -> str:
+        """ユーザーIDに対応するファイルパスを取得する"""
+        # ファイル名に使えない文字をエスケープ
+        safe_user_id = user_id.replace('/', '_').replace('\\', '_').replace(':', '_')
+        return os.path.join(self.persistence_dir, f"{safe_user_id}.json")
+    
+    def _load_existing_states(self):
+        """ディレクトリから既存のユーザー状態ファイルを探して読み込む"""
+        if not os.path.exists(self.persistence_dir):
+            print(f"Persistence directory not found: {self.persistence_dir}. Starting with empty state.")
+            return
+        
+        try:
+            # ディレクトリ内のJSONファイルを検索
+            json_files = [f for f in os.listdir(self.persistence_dir) if f.endswith('.json')]
+            loaded_count = 0
+            
+            for filename in json_files:
+                user_id = filename[:-5]  # .jsonを除去
+                try:
+                    self._load_user_state(user_id)
+                    loaded_count += 1
+                except Exception as e:
+                    print(f"Error loading state for user {user_id}: {e}")
+            
+            print(f"Loaded {loaded_count} user states from {self.persistence_dir}")
+        except Exception as e:
+            print(f"Error scanning persistence directory {self.persistence_dir}: {e}")
+            print("Starting with empty state.")
+    
+    def _load_user_state(self, user_id: str):
+        """指定されたユーザーの状態をファイルから読み込む"""
+        if not self.persistence_dir:
+            return
+        
+        file_path = self._get_user_file_path(user_id)
+        if not os.path.exists(file_path):
+            return
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                state_data = json.load(f)
+            
+            self._states[user_id] = IdStates.from_dict(state_data)
+        except Exception as e:
+            print(f"Error loading state for user {user_id} from {file_path}: {e}")
+    
+    def _save_user_state(self, user_id: str):
+        """指定されたユーザーの状態をファイルに保存する"""
+        if not self.persistence_dir:
+            return
+        
+        try:
+            # ディレクトリが存在しない場合は作成
+            os.makedirs(self.persistence_dir, exist_ok=True)
+            
+            # ユーザーの状態をシリアライズ
+            state_data = self._states[user_id].to_dict()
+            
+            # ユーザー専用ファイルに書き込み
+            file_path = self._get_user_file_path(user_id)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(state_data, f, indent=2, ensure_ascii=False)
+            
+        except Exception as e:
+            print(f"Error saving state for user {user_id}: {e}")
+    
+    def update_user_state(self, user_id: str):
+        """ユーザー状態が更新された際に呼び出され、そのユーザーのファイルに保存する"""
+        self._save_user_state(user_id)
+
+
+# 永続化ディレクトリを環境変数から取得
+PERSISTENCE_DIR = os.environ.get('ID_STATES_PERSISTENCE_PATH')
+
+# id事に状態を管理するPersistentStateManager
+# 各idに対してIdStatesオブジェクトを自動生成して保持し、更新時に個別ファイルに保存
+id_states = PersistentStateManager(PERSISTENCE_DIR)
 
 
 class ICFPMockServer(BaseHTTPRequestHandler):
@@ -91,9 +200,11 @@ class ICFPMockServer(BaseHTTPRequestHandler):
         problem_name = request_data['problemName']
         
         # 新しいランダムAedificiumを生成
-
         new_aedificium = initialize_aedificium(problem_name=problem_name)
         id_states[user_id].set_aedificium(new_aedificium)
+        
+        # 状態更新を永続化
+        id_states.update_user_state(user_id)
         
         print(f"Generated new Aedificium for user '{user_id}', problem '{problem_name}': {new_aedificium}")
         
@@ -151,6 +262,9 @@ class ICFPMockServer(BaseHTTPRequestHandler):
         
         # クエリカウントを更新（プラン数 + リクエストペナルティ1）
         new_query_count = id_states[user_id].increment_query_count(len(plans) + 1)
+        
+        # 状態更新を永続化
+        id_states.update_user_state(user_id)
         
         print(f"User '{user_id}': Explored with {len(plans)} plans, total query count: {new_query_count}")
         
@@ -212,6 +326,9 @@ class ICFPMockServer(BaseHTTPRequestHandler):
             
             # 仕様に従い、guess後は問題を非選択状態にする
             id_states[user_id].clear()
+            
+            # 状態更新を永続化
+            id_states.update_user_state(user_id)
             
             self._send_json_response(200, response)
             
@@ -277,6 +394,10 @@ def run_server(port=8000):
     print(f"  POST http://localhost:{port}/select")
     print(f"  POST http://localhost:{port}/explore") 
     print(f"  POST http://localhost:{port}/guess")
+    if PERSISTENCE_DIR:
+        print(f"State persistence enabled: {PERSISTENCE_DIR} (separate file per user)")
+    else:
+        print("State persistence disabled (set ID_STATES_PERSISTENCE_PATH to enable)")
     print("Press Ctrl+C to stop the server")
     
     try:
