@@ -69,7 +69,7 @@ class SimulatedAnnealingSolver:
     
     def mutate_room_label(self, aedificium: Aedificium) -> Aedificium:
         """
-        局所変更：roomのラベル（2bit整数）1つを書き換え
+        局所変更：2つの部屋のラベル（2bit整数）をスワップ
         
         Args:
             aedificium: 変更対象のAedificium
@@ -79,11 +79,20 @@ class SimulatedAnnealingSolver:
         """
         new_aed = copy.deepcopy(aedificium)
         
-        # ランダムな部屋を選択
-        room_idx = random.randint(0, len(new_aed.rooms) - 1)
+        # 部屋が2つ未満の場合は変更しない
+        if len(new_aed.rooms) < 2:
+            return new_aed
         
-        # 新しいラベル（0-3の2bit整数）を設定
-        new_aed.rooms[room_idx] = random.randint(0, 3)
+        # 異なる2つの部屋をランダムに選択
+        room1_idx = random.randint(0, len(new_aed.rooms) - 1)
+        room2_idx = random.randint(0, len(new_aed.rooms) - 1)
+        
+        # 同じ部屋が選ばれた場合は別の部屋を選択
+        while room2_idx == room1_idx:
+            room2_idx = random.randint(0, len(new_aed.rooms) - 1)
+        
+        # 2つの部屋のラベルをスワップ
+        new_aed.rooms[room1_idx], new_aed.rooms[room2_idx] = new_aed.rooms[room2_idx], new_aed.rooms[room1_idx]
         
         # 接続マップを再構築
         new_aed._connection_map = new_aed._build_connection_map()
@@ -393,24 +402,24 @@ def collect_target_data(api_client: api.APIClient, problem_name: str, plan_lengt
     return target_result, plan
 
 
-def main():
+def try_solve():
     """メイン関数"""
     # APIクライアントを作成
-    api_base, api_id = "http://localhost:8000", "esports_complex"  # ローカルテスト用
-    # api_base, api_id = (
-    #     "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com", 
-    #     "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ"
-    # )  # 本番用
+    # api_base, api_id = "http://localhost:8000", "esports_complex"  # ローカルテスト用
+    api_base, api_id = (
+        "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com", 
+        "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ"
+    )  # 本番用
 
     client = api.create_client(api_base=api_base, api_id=api_id)
     
     # ソルバーを作成
     solver = SimulatedAnnealingSolver()
     
-    # problem_name = "primus"
-    # num_rooms = 6
-    problem_name = "probatio"
-    num_rooms = 3
+    problem_name = "primus"
+    num_rooms = 6
+    # problem_name = "probatio"
+    # num_rooms = 3
     plan_length = num_rooms * 18
     
     # 目標データを収集
@@ -421,7 +430,7 @@ def main():
         target_result=target_result,
         plan=plan,
         num_rooms=num_rooms,
-        max_iterations=200000,
+        max_iterations=400000,
         initial_temp=50.0,
         terminal_temp=0.01
     )
@@ -451,8 +460,18 @@ def main():
         print("サーバーに推測を提出します")
         guess_response = client.guess(estimated_aedificium.to_dict())
         print(guess_response)
+        return guess_response["correct"]
     else:
         print("最終適合度が目標と一致しませんでした")
+        return False
+
+
+def main():
+    while True:
+        if try_solve():
+            break
+        else:
+            print("推測に失敗しました。再度試行します。")
 
 
 if __name__ == "__main__":
