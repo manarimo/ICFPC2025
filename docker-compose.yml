@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  lord-crossight:
+    build:
+      context: ./lord-crossight
+      dockerfile: Dockerfile
+    container_name: lord-crossight-api
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - PYTHONUNBUFFERED=1
+    
+  wizardry:
+    build:
+      context: ./wizardry
+      dockerfile: Dockerfile
+    container_name: wizardry-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - ICFP_API_BASE_URL=http://lord-crossight:8000
+    
+networks:
+  default:
+    name: icfp-network

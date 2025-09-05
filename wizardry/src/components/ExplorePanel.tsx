@@ -175,6 +175,21 @@ export function ExplorePanel({ gameState, onUpdateGameState }: ExplorePanelProps
                     </h4>
                   </div>
                   <div className="overflow-x-auto">
+                    <div className="bg-blue-50 px-4 py-2 border-b border-gray-200">
+                      <span className="text-sm font-medium text-blue-900">Raw:</span>
+                      <input 
+                        type="text" 
+                        readOnly 
+                        value={JSON.stringify(result.roomLabels)} 
+                        onClick={(e) => {
+                          navigator.clipboard.writeText(e.currentTarget.value);
+                          // Optional: Add visual feedback
+                          e.currentTarget.select();
+                        }}
+                        className="ml-2 px-2 py-1 bg-white border border-gray-300 rounded text-sm font-mono cursor-pointer hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        title="Click to copy to clipboard"
+                      />
+                    </div>
                     <table className="min-w-full">
                       <thead className="bg-gray-50">
                         <tr>
