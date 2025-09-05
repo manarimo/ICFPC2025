@@ -272,7 +272,7 @@ def run_server(port=8000):
     server_address = ('', port)
     httpd = HTTPServer(server_address, ICFPMockServer)
     
-    print(f"ICFP Contest 2025 Mock API Server starting on port {port}...")
+    print(f"Lord=Crossight: ICFP Contest 2025 Mock API Server starting on port {port}...")
     print(f"Available endpoints:")
     print(f"  POST http://localhost:{port}/select")
     print(f"  POST http://localhost:{port}/explore") 
