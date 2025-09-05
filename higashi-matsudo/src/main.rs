@@ -182,11 +182,28 @@ fn switch_edge(graph: &mut Graph, rng: &mut impl Rng) {
 fn score(graph: &Graph, plan: &[usize], result: &[usize]) -> usize {
     let current = graph.run(plan);
     assert_eq!(current.len(), result.len());
-    current
-        .iter()
-        .zip(result.iter())
-        .filter(|(a, b)| a != b)
-        .count()
+    let n = current.len();
+
+    let mut dp = vec![vec![0; n + 1]; n + 1];
+    for i in 0..=n {
+        for j in 0..=n {
+            dp[i][j] = if i == 0 && j == 0 {
+                0
+            } else if i == 0 {
+                j
+            } else if j == 0 {
+                i
+            } else {
+                dp[i - 1][j - 1]
+                    + if current[i - 1] == result[j - 1] {
+                        0
+                    } else {
+                        1
+                    }
+            };
+        }
+    }
+    dp[current.len()][result.len()]
 }
 
 fn simulated_annealing(
@@ -199,19 +216,16 @@ fn simulated_annealing(
     let mut best_graph = graph.clone();
     let mut current_score = best_score;
     let mut current_graph = graph.clone();
-
-    // Iteration-based exponential cooling schedule
+    // 反復ベースの指数冷却
     let max_steps: usize = 50000;
     let t0: f64 = 5.0;
     let t_end: f64 = 0.01;
-
     let mut steps = 0usize;
     for step in 0..max_steps {
-        // Exponential schedule between t0 and t_end
         let progress = step as f64 / max_steps as f64;
         let temperature = t0 * (t_end / t0).powf(progress);
-
         let mut new_graph = current_graph.clone();
+
         if rng.random_range(0.0..1.0) < 0.5 {
             switch_label(&mut new_graph, rng);
         } else {
@@ -234,7 +248,6 @@ fn simulated_annealing(
                 current_graph = new_graph;
             }
         }
-
         steps += 1;
         if steps % 1000 == 0 {
             println!("Steps: {}  Temp: {:.4}  Current: {}  Best: {}", steps, temperature, current_score, best_score);
