@@ -303,7 +303,11 @@ def create_random_aedificium(num_rooms: int) -> Aedificium:
         ランダムに生成されたAedificiumオブジェクト
     """
     # 各部屋のラベルをランダム生成（2ビット整数: 0-3）
-    rooms = [random.randint(0, 3) for _ in range(num_rooms)]
+    # rooms = [random.randint(0, 3) for _ in range(num_rooms)]
+
+    # 推測: i mod 4 をランダムシャッフルしているだけ
+    rooms = [i % 4 for i in range(num_rooms)]
+    random.shuffle(rooms)
     
     # 開始部屋をランダム選択
     starting_room = random.randint(0, num_rooms - 1)
