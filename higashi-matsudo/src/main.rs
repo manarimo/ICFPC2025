@@ -86,6 +86,10 @@ async fn main() -> Result<()> {
         println!("response: {:?}", response);
     } else {
         println!("No solution found");
+        println!("n={}", n);
+        println!("plan len={} : {:?}", a.len(), a);
+        println!("colors len={} : {:?}", b.len(), b);
+        return Err("No solution found".into());
     }
 
     Ok(())
@@ -181,10 +185,6 @@ fn dfs(
                 &color_history[1..],
                 start,
             ) {
-                eprintln!(
-                    "cool {from} -> ({forward_door}) -> {to} {:?} {next_color}",
-                    color[to]
-                );
                 return true;
             }
 
@@ -245,7 +245,6 @@ fn fill_graph(graph: &mut [EdgeSet<(usize, usize)>]) {
                 continue;
             }
 
-            eprintln!("push v={v} door={door}");
             candidates.push((v, door));
         }
     }
@@ -255,7 +254,6 @@ fn fill_graph(graph: &mut [EdgeSet<(usize, usize)>]) {
     while let Some((v1, door1)) = candidates.pop()
         && let Some((v2, door2)) = candidates.pop()
     {
-        eprintln!("set v1={v1} door1={door1} v2={v2} door2={door2}");
         graph[v1].set(door1, (v2, door2));
         graph[v2].set(door2, (v1, door1));
     }
@@ -267,7 +265,6 @@ fn validate_graph(
     plan: &[usize],
     color_history: &[usize],
 ) {
-    eprintln!("{:?}", color_history);
     let mut from = 0;
     assert_eq!(colors[from], Some(color_history[0]));
 
@@ -278,8 +275,6 @@ fn validate_graph(
         let next_color = color_history[i + 1];
 
         let (to, backward_door) = graph[from].get(door).expect("no edge");
-        eprintln!("{from} -> ({door}) -> {to}");
-        eprintln!("{to} {:?} {}", colors[to], next_color);
 
         assert_eq!(colors[to], Some(next_color), "{:?}", color_history);
         let backward = graph[to].get(backward_door).expect("no edge");
