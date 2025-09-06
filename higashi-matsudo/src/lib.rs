@@ -99,7 +99,7 @@ impl ApiClient {
         Ok(problem.1)
     }
 
-    pub async fn explore(&self, plan: &[usize]) -> Result<Vec<usize>> {
+    pub async fn explore(&self, plan: &[u8]) -> Result<Vec<usize>> {
         let url = format!("{BASE_URL}/explore");
         let plan = plan
             .iter()
@@ -147,5 +147,45 @@ impl ApiClient {
             .send()
             .await?;
         Ok(response.json::<GuessResponse>().await?.correct)
+    }
+}
+
+#[derive(Clone)]
+pub struct MultiSet<const N: usize> {
+    set: [usize; N],
+    size: usize,
+}
+
+impl<const N: usize> MultiSet<N> {
+    pub fn new() -> Self {
+        Self {
+            set: [0; N],
+            size: 0,
+        }
+    }
+
+    pub fn insert(&mut self, value: usize) {
+        self.set[value] += 1;
+        self.size += 1;
+    }
+
+    pub fn remove(&mut self, value: usize) {
+        assert!(self.set[value] > 0);
+        self.set[value] -= 1;
+        self.size -= 1;
+    }
+
+    pub fn len(&self) -> usize {
+        self.size
+    }
+
+    pub fn to_vec(&self) -> Vec<usize> {
+        let mut vec = Vec::new();
+        for (i, &count) in self.set.iter().enumerate() {
+            for _ in 0..count {
+                vec.push(i);
+            }
+        }
+        vec
     }
 }
