@@ -149,11 +149,10 @@ int calc_score() {
 }
 
 int main() {
+    scanf("%d", &n);
     for (int i = 0; i < n * 18; i++) {
-        plan[i] = random::get(6);
-        printf("%d", plan[i]);
+        scanf("%1d", &plan[i]);
     }
-    puts("");
     for (int i = 0; i <= n * 18; i++) scanf("%1d", &result[i]);
     
     for (int i = 0; i < n; i++) candidate[i % 4].push_back(i);
