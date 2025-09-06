@@ -190,9 +190,6 @@ public class Greedy {
 
         LABEL[0] = 0;
         ROUTE[0] = "";
-        final List<String> plans = new ArrayList<>();
-        for (int i = 0; i < CHECK_NUM; i++) plans.add(CHECK_STR[i]);
-        NEIGHBORS.add(explore(plans));
     }
 
     private static int get_index(final int label, final List<List<Integer>> neighbors) {
@@ -206,27 +203,39 @@ public class Greedy {
         select(n);
         init(n);
 
-        int last = 1;
-        for (int i = 0; i < n; i++) {
+        int current = 0, next = 1, last = 1;
+        while (current < next) {
             final List<String> plans = new ArrayList<>();
-            for (int j = 0; j < 6; j++) {
-                for (int k = 0; k < CHECK_NUM; k++) plans.add(ROUTE[i] + j + CHECK_STR[k]);
+            for (int i = current; i < next; i++) {
+                for (int j = 0; j < 6; j++) {
+                    for (int k = 0; k < CHECK_NUM; k++) plans.add(ROUTE[i] + j + CHECK_STR[k]);
+                }
+            }
+            if (current == 0) {
+                for (int j = 0; j < CHECK_NUM; j++) plans.add(CHECK_STR[j]);
             }
             final List<List<Integer>> results = explore(plans);
-            final List<Integer> labels = new ArrayList<>();
-            for (int j = 0; j < 6; j++) labels.add(results.get(j * CHECK_NUM).get(ROUTE[i].length() + 1));
-            for (int j = 0; j < results.size(); j++)
-                results.set(j, results.get(j).subList(ROUTE[i].length() + 1, results.get(j).size()));
-            for (int j = 0; j < 6; j++) {
-                int index = get_index(labels.get(j), results.subList(j * CHECK_NUM, (j + 1) * CHECK_NUM));
-                if (index == -1) {
-                    index = last++;
-                    LABEL[index] = labels.get(j);
-                    ROUTE[index] = ROUTE[i] + j;
-                    NEIGHBORS.add(results.subList(j * CHECK_NUM, (j + 1) * CHECK_NUM));
-                }
-                GRAPH[i][j] = index;
+            if (current == 0) {
+                NEIGHBORS.add(results.subList(6 * CHECK_NUM, 7 * CHECK_NUM));
             }
+            for (int i = current, l = 0; i < next; i++) {
+                for (int j = 0; j < 6; j++) {
+                    final int label = results.get(l).get(ROUTE[i].length() + 1);
+                    final List<List<Integer>> neighbors = new ArrayList<>();
+                    for (int k = 0; k < CHECK_NUM; k++) neighbors.add(results.get(l + k).subList(ROUTE[i].length() + 1, results.get(l + k).size()));
+                    int index = get_index(label, neighbors);
+                    if (index == -1) {
+                        index = last++;
+                        LABEL[index] = label;
+                        ROUTE[index] = ROUTE[i] + j;
+                        NEIGHBORS.add(neighbors);
+                    }
+                    GRAPH[i][j] = index;
+                    l += CHECK_NUM;
+                }
+            }
+            current = next;
+            next = last;
         }
 
         final List<Integer> rooms = new ArrayList<>();
