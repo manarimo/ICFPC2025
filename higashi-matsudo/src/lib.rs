@@ -99,7 +99,7 @@ impl ApiClient {
         Ok(problem.1)
     }
 
-    pub async fn explore(&self, plan: &[u8]) -> Result<Vec<usize>> {
+    pub async fn explore(&self, plan: &[usize]) -> Result<Vec<usize>> {
         let url = format!("{BASE_URL}/explore");
         let plan = plan
             .iter()

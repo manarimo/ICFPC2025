@@ -1,14 +1,17 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeSet,
+    fmt::Debug,
+    time::{Duration, Instant},
+};
 
-use higashi_matsudo::{ApiClient, BackendType, MultiSet};
+use higashi_matsudo::{ApiClient, BackendType, Connection, GuessRequestMap, Vertex};
 use rand::Rng;
 
-const SIX: u8 = 6;
-const N: usize = 60;
+const SIX: usize = 6;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-fn generate_random_plan(length: usize, rng: &mut impl Rng) -> Vec<u8> {
+fn generate_random_plan(length: usize, rng: &mut impl Rng) -> Vec<usize> {
     (0..length).map(|_| rng.random_range(0..SIX)).collect()
 }
 
@@ -18,7 +21,7 @@ async fn main() -> Result<()> {
     let client = ApiClient::new(BackendType::Mock)?;
 
     // 部屋の数
-    let n = client.select("primus").await?;
+    let n = client.select("probatio").await?;
 
     // 移動の履歴
     let a = generate_random_plan(n * 18, &mut rng);
@@ -26,165 +29,250 @@ async fn main() -> Result<()> {
     // 移動した部屋の色
     let b = client.explore(&a).await?;
 
-    let mut nodes = vec![Node::new(); n];
-    let mut groups = [vec![], vec![], vec![], vec![]];
-    let mut remain_stack = (1..n).collect();
+    let mut color = vec![None; n];
+    let mut graph = vec![EdgeSet::new(); n];
+    color[0] = Some(b[0]);
+    if dfs(0, &mut graph, &mut color, &a, &b[1..], Instant::now()) {
+        println!("Found solution");
+        fill_graph(&mut graph);
+        validate_graph(&graph, &color, &a, &b);
 
-    nodes[0].color = Some(b[0]);
-    groups[b[0]].push(0);
+        for v in 0..n {
+            if color[v].is_none() {
+                color[v] = Some(0);
+            }
+        }
 
-    let result = dfs(0, &mut groups, &mut remain_stack, &mut nodes, &a, &b[1..]);
-    assert!(result, "a={:?}, b={:?}", a, b);
+        let mut set = BTreeSet::new();
+        for from in 0..n {
+            for forward_door in 0..SIX {
+                let (to, backward_door) = graph[from].get(forward_door).expect("no edge");
+                let t = graph[to].get(backward_door).expect("no edge");
+                assert_eq!(t, (from, forward_door));
+
+                let from = (from, forward_door);
+                let to = (to, backward_door);
+                let (from, to) = (from.min(to), from.max(to));
+                set.insert((from, to));
+            }
+        }
+
+        let mut rooms = vec![];
+        for v in 0..n {
+            rooms.push(color[v].expect("no color"));
+        }
+
+        let mut connections = vec![];
+        for (from, to) in set {
+            connections.push(Connection {
+                from: Vertex {
+                    room: from.0,
+                    door: from.1,
+                },
+                to: Vertex {
+                    room: to.0,
+                    door: to.1,
+                },
+            });
+        }
+
+        let map = GuessRequestMap {
+            rooms,
+            starting_room: 0,
+            connections,
+        };
+
+        let response = client.guess(&map).await?;
+        println!("response: {:?}", response);
+    } else {
+        println!("No solution found");
+    }
 
     Ok(())
 }
 
-type VertexID = usize;
-type DoorID = u8;
-type ColorID = usize;
-
-#[derive(Clone)]
-struct Node {
-    color: Option<ColorID>,
-
-    edges_by_door: BTreeMap<DoorID, VertexID>,
-    undefined_edges: MultiSet<N>,
-}
-impl Node {
-    fn new() -> Self {
-        Self {
-            color: None,
-            edges_by_door: BTreeMap::new(),
-            undefined_edges: MultiSet::new(),
-        }
-    }
-}
-
 fn dfs(
-    v: usize,
-    groups: &mut [Vec<VertexID>; 4],
-    remain_stack: &mut Vec<VertexID>,
-    nodes: &mut [Node],
-    doors: &[DoorID],
-    colors: &[ColorID],
+    from: usize,
+    graph: &mut [EdgeSet<(usize, usize)>],
+    color: &mut Vec<Option<usize>>,
+    door_history: &[usize],
+    color_history: &[usize],
+    start: Instant,
 ) -> bool {
-    if doors.is_empty() {
+    assert!(color[from].is_some());
+    assert_eq!(door_history.len(), color_history.len());
+    let now = Instant::now();
+    if now - start > Duration::from_secs(10) {
+        return false;
+    }
+    if door_history.is_empty() {
         return true;
     }
 
-    assert_eq!(doors.len(), colors.len());
-    let next_color = colors[0];
-    let using_door = doors[0];
-
-    // 既に確定した辺があるとき
-    if let Some(&next_v) = nodes[v].edges_by_door.get(&using_door) {
-        if nodes[next_v].color != Some(next_color) {
-            return false;
+    let n = graph.len();
+    let forward_door = door_history[0];
+    let next_color = color_history[0];
+    for to in 0..n {
+        if let Some(a) = graph[from].get(forward_door)
+            && a.0 != to
+        {
+            continue;
         }
 
-        return dfs(
-            next_v,
-            groups,
-            remain_stack,
-            nodes,
-            &doors[1..],
-            &colors[1..],
-        );
-    }
-
-    if nodes[v].edges_by_door.contains_key(&using_door) {
-        return false;
-    }
-
-    // 入ってくる未確定の辺を使う場合
-    for next_v in nodes[v].undefined_edges.to_vec() {
-        match nodes[next_v].color {
-            Some(c) => {
-                if c != next_color {
+        let mut fill_color = false;
+        match color[to] {
+            Some(current_color) => {
+                if current_color != next_color {
                     continue;
                 }
-
-                nodes[v].undefined_edges.remove(next_v);
-                let existing = nodes[v].edges_by_door.insert(using_door, next_v);
-                assert!(existing.is_none());
-
-                if dfs(
-                    next_v,
-                    groups,
-                    remain_stack,
-                    nodes,
-                    &doors[1..],
-                    &colors[1..],
-                ) {
-                    return true;
-                }
-
-                nodes[v].undefined_edges.insert(next_v);
-                let removed = nodes[v].edges_by_door.remove(&using_door);
-                assert_eq!(removed, Some(next_v));
             }
-            None => unreachable!(),
+            None => {
+                color[to] = Some(next_color);
+                fill_color = true;
+            }
         }
-    }
+        assert_eq!(color[to], Some(next_color));
 
-    // 既に色が確定している頂点にいくとき
-    if nodes[v].undefined_edges.len() + nodes[v].edges_by_door.len() < 6 {
-        for next_v in groups[next_color].clone() {
-            if nodes[next_v].undefined_edges.len() + nodes[next_v].edges_by_door.len() >= 6 {
+        for backward_door in 0..SIX {
+            if let Some(a) = graph[from].get(forward_door)
+                && a != (to, backward_door)
+            {
+                continue;
+            }
+            if to == from && backward_door == forward_door {
+                continue;
+            }
+            if to == from && graph[from].len() >= 5 {
+                continue;
+            }
+            if to != from && (graph[from].len() >= 6 || graph[to].len() >= 6) {
                 continue;
             }
 
-            nodes[v].edges_by_door.insert(using_door, next_v);
-            nodes[next_v].undefined_edges.insert(v);
+            let mut fill_graph = false;
+            match graph[to].get(backward_door) {
+                None => {
+                    graph[from].set(forward_door, (to, backward_door));
+                    graph[to].set(backward_door, (from, forward_door));
+                    fill_graph = true;
+                }
+                _ => {}
+            }
+
+            assert!(graph[to].len() <= 6);
+            assert!(graph[from].len() <= 6);
 
             if dfs(
-                next_v,
-                groups,
-                remain_stack,
-                nodes,
-                &doors[1..],
-                &colors[1..],
+                to,
+                graph,
+                color,
+                &door_history[1..],
+                &color_history[1..],
+                start,
             ) {
+                eprintln!(
+                    "cool {from} -> ({forward_door}) -> {to} {:?} {next_color}",
+                    color[to]
+                );
                 return true;
             }
 
-            nodes[v].edges_by_door.remove(&using_door);
-            nodes[next_v].undefined_edges.remove(v);
-        }
-    }
-
-    // 完全新規の頂点にいくとき
-    if let Some(&next_v) = remain_stack.last()
-        && nodes[v].undefined_edges.len() + nodes[v].edges_by_door.len() < 6
-        && nodes[next_v].undefined_edges.len() + nodes[next_v].edges_by_door.len() < 6
-    {
-        nodes[v].edges_by_door.insert(using_door, next_v);
-        nodes[next_v].undefined_edges.insert(v);
-        groups[next_color].push(next_v);
-        assert!(nodes[next_v].color.is_none());
-        nodes[next_v].color = Some(next_color);
-        let last = remain_stack.pop();
-        assert_eq!(last, Some(next_v));
-
-        if dfs(
-            next_v,
-            groups,
-            remain_stack,
-            nodes,
-            &doors[1..],
-            &colors[1..],
-        ) {
-            return true;
+            if fill_graph {
+                graph[to].remove(backward_door);
+                graph[from].remove(forward_door);
+            }
         }
 
-        let removed = nodes[v].edges_by_door.remove(&using_door);
-        assert_eq!(removed, Some(next_v));
-        nodes[next_v].undefined_edges.remove(v);
-        let pop = groups[next_color].pop();
-        assert_eq!(pop, Some(next_v));
-        nodes[next_v].color = None;
-        remain_stack.push(next_v);
+        if fill_color {
+            color[to] = None;
+        }
     }
 
     false
+}
+
+#[derive(Clone)]
+struct EdgeSet<T> {
+    size: usize,
+    edges: [Option<T>; SIX],
+}
+
+impl<T: Copy + Debug> EdgeSet<T> {
+    fn new() -> Self {
+        Self {
+            size: 0,
+            edges: [None; SIX],
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.size
+    }
+
+    fn set(&mut self, door: usize, target: T) {
+        assert!(self.edges[door].is_none());
+        self.edges[door] = Some(target);
+        self.size += 1;
+    }
+    fn remove(&mut self, door: usize) {
+        assert!(self.edges[door].is_some());
+        self.edges[door] = None;
+        self.size -= 1;
+    }
+
+    fn get(&self, door: usize) -> Option<T> {
+        self.edges[door]
+    }
+}
+
+fn fill_graph(graph: &mut [EdgeSet<(usize, usize)>]) {
+    let n = graph.len();
+    let mut candidates = vec![];
+    for v in 0..n {
+        for door in 0..SIX {
+            if graph[v].get(door).is_some() {
+                continue;
+            }
+
+            eprintln!("push v={v} door={door}");
+            candidates.push((v, door));
+        }
+    }
+
+    assert_eq!(candidates.len() % 2, 0);
+
+    while let Some((v1, door1)) = candidates.pop()
+        && let Some((v2, door2)) = candidates.pop()
+    {
+        eprintln!("set v1={v1} door1={door1} v2={v2} door2={door2}");
+        graph[v1].set(door1, (v2, door2));
+        graph[v2].set(door2, (v1, door1));
+    }
+}
+
+fn validate_graph(
+    graph: &[EdgeSet<(usize, usize)>],
+    colors: &[Option<usize>],
+    plan: &[usize],
+    color_history: &[usize],
+) {
+    eprintln!("{:?}", color_history);
+    let mut from = 0;
+    assert_eq!(colors[from], Some(color_history[0]));
+
+    let t = plan.len();
+    assert_eq!(t + 1, color_history.len());
+    for i in 0..t {
+        let door = plan[i];
+        let next_color = color_history[i + 1];
+
+        let (to, backward_door) = graph[from].get(door).expect("no edge");
+        eprintln!("{from} -> ({door}) -> {to}");
+        eprintln!("{to} {:?} {}", colors[to], next_color);
+
+        assert_eq!(colors[to], Some(next_color), "{:?}", color_history);
+        let backward = graph[to].get(backward_door).expect("no edge");
+        assert_eq!(backward, (from, door));
+        from = to;
+    }
 }
