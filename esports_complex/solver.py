@@ -6,8 +6,10 @@ import multiprocessing
 import os
 from typing import List, Dict, Any, Tuple
 from aedificium import Aedificium, create_random_aedificium, reconstruct_aedificium
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, namedtuple
 from statistics import mean
+
+from beam_search import BeamSearch
 
 
 def list_ngram_hashes(s: List[int], n: int) -> List[int]:
@@ -248,6 +250,7 @@ def solve_with_seed(args):
     
     # solve関数を実行
     solution = solve(target_result, plan, num_rooms, max_iterations, initial_temp, terminal_temp)
+    #solution = try_solve_beam(target_result, plan, num_rooms)
     fitness = evaluate_fitness(solution, target_result, plan, num_rooms)
     
     return solution, fitness
@@ -448,6 +451,69 @@ def try_solve():
     print(guess_response)
     return guess_response["correct"]
 
+BeamState = namedtuple("BeamState", ["state", "hash", "score"])
+
+def calc_hash(room_history: List[int]) -> int:
+    v = 0
+    for r in room_history:
+        v *= 1000000009
+        v += r
+        v %= 1000000009
+    return v
+
+def expand_beam(room_history: List[int], plan: str, target_result: List[int], num_rooms: int) -> BeamState:
+    mutation_functions = [
+        resolve_conflict,
+        resolve_overflow,
+    ]
+
+    res = []
+    for func in mutation_functions:
+      new_state = func(room_history, plan, num_rooms)
+      new_score = evaluate_fitness(new_state, target_result, plan, num_rooms)
+      res.append(BeamState(new_state, calc_hash(new_state), new_score))
+
+    for _ in range(50):
+        sample_size = random.randrange(1, 10)
+        indices = random.sample(range(len(room_history)), sample_size)
+        updated = room_history[:]
+        for index in indices:
+            room_id = room_history[index]
+            new_room_id = random.randrange(0, num_rooms)
+            new_room_id = new_room_id // 4 * 4 + room_id % 4
+            if new_room_id >= num_rooms:
+                new_room_id -= 4
+            updated[index] = new_room_id
+        score = evaluate_fitness(updated, target_result, plan, num_rooms)
+        res.append(BeamState(updated, calc_hash(updated), score))
+
+    return res
+
+def try_solve_beam(target_result: List[int], plan: str, num_rooms: int):
+    beam_search = BeamSearch[BeamState](
+        beam_size=100,
+        max_steps=100000,
+        key=lambda x: x.hash
+    )
+
+    initial_states = []
+    for _ in range(100):
+        room_history = []
+        for i, label in enumerate(target_result):
+            room_id = random.randrange(0, num_rooms // 4) * 4 + label
+            if room_id >= num_rooms:
+                room_id -= 4
+            room_history.append(room_id)
+        score = evaluate_fitness(room_history, target_result, plan, num_rooms),
+        initial_states.append(BeamState(room_history, calc_hash(room_history), score))
+
+    res = beam_search.run(
+        initial_states=initial_states,
+        expand=lambda s: expand_beam(s.state, plan, target_result, num_rooms),
+        score=lambda s: s.score,
+        is_goal=lambda s: s.score == 0
+    )
+    return res
 
 def main():
     # while True:
