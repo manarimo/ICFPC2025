@@ -148,6 +148,24 @@ def mutate_one_element(room_history: List[int], plan: str, num_rooms: int) -> Li
     updated[index] = new_room_id
     return updated
 
+
+def mutate_multiple_elements(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
+    """
+    ランダムな要素を変更
+    """
+    room_id_subject_to_change = random.choice(room_history)
+    new_room_id = random.randrange(0, num_rooms)
+    new_room_id = new_room_id // 4 * 4 + room_id_subject_to_change % 4
+    if new_room_id >= num_rooms:
+        new_room_id -= 4
+    
+    updated = room_history[:]
+    for i in range(len(room_history)):
+        if room_history[i] == room_id_subject_to_change and random.random() < 0.3:
+            updated[i] = new_room_id
+    return updated
+
+
 def resolve_conflict(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
     plan_ints = [int(p) for p in plan]
     door_destinations = {}
@@ -226,11 +244,12 @@ def get_random_mutation(room_history: List[int], plan: str, num_rooms: int) -> L
         """
         mutation_functions = [
             mutate_one_element,
+            mutate_multiple_elements,
             resolve_conflict,
             resolve_overflow
         ]
         
-        mutation_func = random.choices(mutation_functions, weights=[1, 2, 3])[0]
+        mutation_func = random.choices(mutation_functions, weights=[1, 2, 1, 1])[0]
         return mutation_func(room_history, plan, num_rooms)
 
 
@@ -403,9 +422,9 @@ def try_solve():
             target_result,
             plan, 
             num_rooms,
-            4000000,
+            400000,
             1e-2,  # initial_temp
-            1e-5,   # terminal_temp
+            1e-4,   # terminal_temp
         )
         process_args.append(args)
     
@@ -458,12 +477,12 @@ def try_solve():
 
 
 def main():
-    # while True:
-    #     if try_solve():
-    #         break
-    #     else:
-    #         print("推測に失敗しました。再度試行します。")
-    try_solve()
+    while True:
+        if try_solve():
+            break
+        else:
+            print("推測に失敗しました。再度試行します。")
+    # try_solve()
 
 
 if __name__ == "__main__":
