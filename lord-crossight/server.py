@@ -393,32 +393,38 @@ def initialize_aedificium(problem_name: str) -> Aedificium:
     問題名に応じてAedificiumを生成する
     """
     public_names = {
-        "probatio": 3,
-        "primus": 6,
-        "secundus": 12,
-        "tertius": 18,
-        "quartus": 24,
-        "quintus": 30,
+        "probatio": (3, 1),
+        "primus": (6, 1),
+        "secundus": (12, 1),
+        "tertius": (18, 1),
+        "quartus": (24, 1),
+        "quintus": (30, 1),
 
-        "aleph": 12,
-        "beth": 24,
-        "gimel": 36,
-        "daleth": 48,
-        "he": 60,
+        "aleph": (6, 2),
+        "beth": (12, 2),
+        "gimel": (18, 2),
+        "daleth": (24, 2),
+        "he": (30, 2),
 
-        "vau": 18,
-        "zain": 36,
-        "hhet": 54,
-        "teth": 72,
-        "iod": 90,
+        "vau": (6, 3),
+        "zain": (12, 3),
+        "hhet": (18, 3),
+        "teth": (24, 3),
+        "iod": (30, 3),
     }
     if problem_name in public_names:
-        return create_random_aedificium(num_rooms=public_names[problem_name])
+        single_rooms, duplication_factor = public_names[problem_name]
+        return create_random_aedificium(single_rooms=single_rooms, duplication_factor=duplication_factor)
 
+    if re.match(r"random_full_(\d+)_(\d+)", problem_name):
+        single_rooms, duplication_factor = map(int, problem_name.split("_")[2:])
+        return create_random_aedificium(single_rooms=single_rooms, duplication_factor=duplication_factor)
+
+    # lightning backward compatibility
     # if problem_name matches "random_room_size_{int}", return a random Aedificium with the given number of rooms
     if re.match(r"random_room_size_\d+", problem_name):
-        num_rooms = int(problem_name.replace("random_room_size_", ""))
-        return create_random_aedificium(num_rooms=num_rooms)
+        single_rooms = int(problem_name.replace("random_room_size_", ""))
+        return create_random_aedificium(single_rooms=single_rooms, duplication_factor=1)
 
     raise ValueError(f"Invalid problem name: {problem_name}")
 

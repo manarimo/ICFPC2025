@@ -338,7 +338,52 @@ def _all_doors_used(connections: List[Dict[str, Any]], num_rooms: int) -> bool:
     return True
 
 
-def create_random_aedificium(num_rooms: int) -> Aedificium:
+def create_random_aedificium(single_rooms: int, duplication_factor: int = 1) -> Aedificium:
+    """
+    ランダムなAedificiumを生成する
+    連結かつ全てのドアが使われているような部屋になるまで生成を繰り返す
+    
+    Args:
+        single_rooms: duplication_factorによる重複を考慮しない部屋数
+        duplication_factor: 重複度。num_rooms * duplication_factor が部屋数になる。
+    
+    Returns:
+        ランダムに生成されたAedificiumオブジェクト
+    """
+    if duplication_factor == 1:
+        return create_random_aedificium_single(single_rooms)
+    assert duplication_factor > 1
+
+    num_rooms = single_rooms * duplication_factor
+    max_attempts = 10
+    for _ in range(max_attempts):
+        single_aedificium = create_random_aedificium_single(single_rooms)
+        rooms = single_aedificium.rooms * duplication_factor
+        starting_room = single_aedificium.starting_room
+        connection_dupes = []
+        for i in range(duplication_factor):
+            renamed_connections = []
+            for connection in single_aedificium.connections:
+                renamed_connections.append({
+                    "from": {"room": connection['from']['room'] + i * single_rooms, "door": connection['from']['door']},
+                    "to": {"room": connection['to']['room'] + i * single_rooms, "door": connection['to']['door']}
+                })
+            connection_dupes.append(renamed_connections)
+        for duped_connections in zip(*connection_dupes):
+            for _ in range(random.randint(8, 12)):
+                swap_side = random.choice(["from", "to"])
+                i1, i2 = random.sample(range(duplication_factor), 2)
+                duped_connections[i1][swap_side], duped_connections[i2][swap_side] = duped_connections[i2][swap_side], duped_connections[i1][swap_side]
+        connections = sum(connection_dupes, [])
+        candidate = Aedificium(rooms, starting_room, connections)
+        if _is_connected(connections, num_rooms) and _all_doors_used(connections, num_rooms):
+            return candidate
+    # 最大試行回数に達した場合、警告を出してベストエフォートで返す
+    print(f"Warning: Could not generate fully connected aedificium with all doors used after {max_attempts} attempts")
+    return candidate
+
+
+def create_random_aedificium_single(num_rooms: int) -> Aedificium:
     """
     ランダムなAedificiumを生成する
     連結かつ全てのドアが使われているような部屋になるまで生成を繰り返す

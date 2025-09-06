@@ -32,7 +32,7 @@ def cmd_select(args):
     try:
         client = create_client(api_base=args.api_base)
         response = client.select(args.problem_name)
-        print(f"問題選択成功: {json.dumps(response, indent=2)}")
+        print(f"{json.dumps(response, indent=2)}")
     except Exception as e:
         print(f"問題選択エラー: {e}")
         sys.exit(1)
@@ -44,7 +44,7 @@ def cmd_explore(args):
         client = create_client(api_base=args.api_base)
         plans = args.plans if isinstance(args.plans, list) else [args.plans]
         response = client.explore(plans)
-        print(f"探索結果: {json.dumps(response, indent=2)}")
+        print(f"{json.dumps(response, indent=2)}")
     except Exception as e:
         print(f"探索エラー: {e}")
         sys.exit(1)
@@ -59,15 +59,20 @@ def cmd_guess(args):
             map_data = json.load(f)
         
         response = client.guess(map_data)
-        print(f"推測結果: {json.dumps(response, indent=2)}")
-        
-        if response.get("correct"):
-            print("🎉 正解です！")
-        else:
-            print("❌ 不正解です。再度お試しください。")
-            
+        print(f"{json.dumps(response, indent=2)}")
     except Exception as e:
         print(f"推測提出エラー: {e}")
+        sys.exit(1)
+
+
+def cmd_spoiler(args):
+    """正解を取得する"""
+    try:
+        client = create_client(api_base=args.api_base)
+        response = client.spoiler()
+        print(f"{json.dumps(response, indent=2)}")
+    except Exception as e:
+        print(f"正解取得エラー: {e}")
         sys.exit(1)
 
 
@@ -104,6 +109,10 @@ def main():
     guess_parser = subparsers.add_parser("guess", help="マップを推測して提出する")
     guess_parser.add_argument("map_file", help="マップデータのJSONファイル")
     guess_parser.set_defaults(func=cmd_guess)
+
+    # spoiler コマンド
+    spoiler_parser = subparsers.add_parser("spoiler", help="正解を取得する")
+    spoiler_parser.set_defaults(func=cmd_spoiler)
     
     args = parser.parse_args()
     
