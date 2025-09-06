@@ -244,6 +244,53 @@ class Aedificium:
         # equivalence_testメソッドを使用して判定
         result = self.equivalence_test(other, full_contest_feature)
         return result is None
+
+    def inject_charcoal_to_walk(self, plan: str) -> str:
+        visited = [False] * len(self.rooms)
+
+        # 縮小マップでまだ訪問したことがない頂点にきたらラベルを張り替える
+        current_room = self.starting_room
+        visited[current_room] = True
+        new_plan = f"[{(self.rooms[current_room] + 1) % 4}]"
+
+        for door_str in plan:
+            new_plan += door_str
+            door_num = int(door_str)
+            door = self._connection_map[(current_room, door_num)]
+            next_room = door[0]
+            if not visited[next_room]:
+                # 縮小マップでまだ訪問したことがない頂点にきたらラベルを張り替える
+                visited[next_room] = True
+                new_plan += f"[{(self.rooms[next_room] + 1) % 4}]"
+            current_room = next_room
+        return new_plan
+
+    def reconstruct_connections_double(self, plan_str: str, result: List[int]) -> Dict[Tuple[int, int], Tuple[int, int]] | None:
+        n = len(self.rooms)
+        dests = {}
+        plan = parse_plan(plan_str)
+        print(plan)
+
+        # 縮小マップの上で動きをシミュレートし、ラベルが縮小マップと異なる場合はレイヤーをまたいだと判断する
+        current_room = self.starting_room
+        current_layer = 0
+        for ((action, door_num), label, (next_action, _)) in zip(plan, result[1:], plan[1:]):
+            if action == Action.USE_CHARCOAL:
+                continue
+            door = self._connection_map[(current_room, door_num)]
+            next_room = door[0]
+            if next_action != Action.USE_CHARCOAL and self.rooms[next_room] == label:
+                next_layer = 1
+            else:
+                next_layer = 0
+            from_door = (current_room + current_layer * n, door_num)
+            to_room = next_room + next_layer * n
+            if from_door in dests and dests[from_door] != to_room:
+                print(f"ERROR: {from_door}, {to_room}, {dests[from_door]}")
+                return None
+            dests[from_door] = to_room
+            current_room, current_layer = next_room, next_layer
+        return build_connections(dests)
     
     def __repr__(self) -> str:
         """
@@ -529,6 +576,8 @@ def build_connections(door_destinations: Dict[Tuple[int, int], int]) -> List[Dic
                     "to": {"room": room_id, "door": door_id}
                 })
     return connections
+
+
 
 
 def test_reconstruct_aedificium():

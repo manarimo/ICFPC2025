@@ -76,6 +76,7 @@ def solve(args) -> Aedificium | None:
 def try_solve():
     """メイン関数"""
     # APIクライアントを作成
+    # api_base, api_id = "http://localhost:8000", "kawatea_parallel"  # ローカルテスト用
     api_base, api_id = "http://localhost:8000", "kawatea_parallel"  # ローカルテスト用
     # api_base, api_id = (
     #     "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com", 
@@ -86,13 +87,15 @@ def try_solve():
 
     client = api.create_client(api_base=api_base, api_id=api_id)
     
+    # 2倍問題・3倍問題の場合はnum_roomsを縮小マップのサイズで指定する
+    mode = 'DOUBLE'
     problem_config = ProblemConfig(
-        problem_name="random_room_size_12", 
-        num_rooms=12,
+        problem_name="random_full_3_2", 
+        num_rooms=3,
     )
 
     client.select(problem_config.problem_name)
-    plan = ''.join(random.choices('012345', k=problem_config.num_rooms * 18))
+    plan = ''.join(random.choices('012345', k=problem_config.num_rooms * 6))
     explore_response = client.explore([plan])
     result = explore_response["results"][0]
     explore = Explore(plan=plan, result=result)
@@ -121,6 +124,32 @@ def try_solve():
         return False
 
     estimated_aedificium = candidates[0]
+    print(estimated_aedificium.to_json())
+    spoiler = client.spoiler()
+    spoiler_aedificium = Aedificium.from_dict(spoiler['map'])
+    conns = []
+    seen = set()
+    for conn in spoiler_aedificium.connections:
+        fr = conn['from']
+        fr['room'] %= 3
+        to = conn['to']
+        to['room'] %= 3
+        tag = (fr['room'], fr['door'])
+        if tag not in seen:
+            conns.append({'from': fr, 'to': to})
+            seen.add(tag)
+    estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:3], spoiler_aedificium.starting_room, conns)
+
+    if mode == 'DOUBLE':
+        # ランダムウォークして情報をあつめる
+        raw_plan = ''.join(random.choices('012345', k=problem_config.num_rooms * 6))
+        enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(raw_plan)
+        res = client.explore([enhanced_plan])
+        print(res)
+        connections = estimated_aedificium.reconstruct_connections_double(enhanced_plan, res['results'][0])
+        if connections is None:
+            print("Error: connections is None")
+        estimated_aedificium = Aedificium(estimated_aedificium.rooms * 2, estimated_aedificium.starting_room, connections)
 
     print("\n=== 復元結果 ===")
     print(f"部屋ラベル: {estimated_aedificium.rooms}")
