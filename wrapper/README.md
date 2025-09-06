@@ -1,6 +1,22 @@
-Wrapper Tool (stdin/stdout → HTTP proxy)
+Wrapper Tool (FIFO pipe → HTTP proxy)
 
-Overview
+# 使い方
+```
+go build
+
+# ローカルの場合
+./run-wrapper.sh
+
+# 本番の場合
+API_BASE=https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com/ ./run-wrapper.sh
+```
+
+run-wrapper.shが走っている状態で
+- `/tmp/to-wrapper` に書き込む
+- `/tmp/from-wrapper` から読み込む
+ことで通信できます。
+
+# Overview
 
 - Reads commands from stdin using the custom text protocol in `io-spec.txt` (not raw JSON).
 - Proxies to the API server at `API_BASE`.
