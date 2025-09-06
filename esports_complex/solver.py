@@ -150,6 +150,24 @@ def mutate_one_element(room_history: List[int], plan: str, num_rooms: int) -> Li
     updated[index] = new_room_id
     return updated
 
+
+def mutate_multiple_elements(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
+    """
+    ランダムな要素を変更
+    """
+    room_id_subject_to_change = random.choice(room_history)
+    new_room_id = random.randrange(0, num_rooms)
+    new_room_id = new_room_id // 4 * 4 + room_id_subject_to_change % 4
+    if new_room_id >= num_rooms:
+        new_room_id -= 4
+    
+    updated = room_history[:]
+    for i in range(len(room_history)):
+        if room_history[i] == room_id_subject_to_change and random.random() < 0.3:
+            updated[i] = new_room_id
+    return updated
+
+
 def resolve_conflict(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
     plan_ints = [int(p) for p in plan]
     door_destinations = {}
@@ -166,6 +184,9 @@ def resolve_conflict(room_history: List[int], plan: str, num_rooms: int) -> List
             continue
         door_destinations[door] = (i, room_from, plan_int, room_to)
         incoming_doors[room_to].add(door)
+
+    if not index_candidates:
+        return room_history
     
     index = index_candidates[random.randrange(0, len(index_candidates))]
 
@@ -193,6 +214,9 @@ def resolve_overflow(room_history: List[int], plan: str, num_rooms: int) -> List
     for incoming_door in incoming_doors:
         if len(incoming_door) > 6:
             door_candidates.extend(incoming_door)
+        
+    if not door_candidates:
+        return room_history
     
     door = door_candidates[random.randrange(0, len(door_candidates))]
 
@@ -214,17 +238,20 @@ def get_random_mutation(room_history: List[int], plan: str, num_rooms: int) -> L
         
         Args:
             room_history: 変更対象の部屋IDの履歴
+            plan: 使用するプラン
+            num_rooms: 部屋数
             
         Returns:
             List[int]: 変更後の部屋IDの履歴
         """
         mutation_functions = [
             mutate_one_element,
+            mutate_multiple_elements,
             resolve_conflict,
             resolve_overflow
         ]
         
-        mutation_func = random.choices(mutation_functions, weights=[1, 2, 3])[0]
+        mutation_func = random.choices(mutation_functions, weights=[1, 2, 1, 1])[0]
         return mutation_func(room_history, plan, num_rooms)
 
 
@@ -400,7 +427,7 @@ def try_solve():
             num_rooms,
             400000,
             1e-2,  # initial_temp
-            1e-5,   # terminal_temp
+            1e-4,   # terminal_temp
         )
         process_args.append(args)
     
@@ -516,12 +543,12 @@ def try_solve_beam(target_result: List[int], plan: str, num_rooms: int):
     return res
 
 def main():
-    # while True:
-    #     if try_solve():
-    #         break
-    #     else:
-    #         print("推測に失敗しました。再度試行します。")
-    try_solve()
+    while True:
+        if try_solve():
+            break
+        else:
+            print("推測に失敗しました。再度試行します。")
+    # try_solve()
 
 
 if __name__ == "__main__":
