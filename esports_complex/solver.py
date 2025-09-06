@@ -164,6 +164,9 @@ def resolve_conflict(room_history: List[int], plan: str, num_rooms: int) -> List
             continue
         door_destinations[door] = (i, room_from, plan_int, room_to)
         incoming_doors[room_to].add(door)
+
+    if not index_candidates:
+        return room_history
     
     index = index_candidates[random.randrange(0, len(index_candidates))]
 
@@ -191,6 +194,9 @@ def resolve_overflow(room_history: List[int], plan: str, num_rooms: int) -> List
     for incoming_door in incoming_doors:
         if len(incoming_door) > 6:
             door_candidates.extend(incoming_door)
+        
+    if not door_candidates:
+        return room_history
     
     door = door_candidates[random.randrange(0, len(door_candidates))]
 
@@ -212,6 +218,8 @@ def get_random_mutation(room_history: List[int], plan: str, num_rooms: int) -> L
         
         Args:
             room_history: 変更対象の部屋IDの履歴
+            plan: 使用するプラン
+            num_rooms: 部屋数
             
         Returns:
             List[int]: 変更後の部屋IDの履歴
@@ -395,7 +403,7 @@ def try_solve():
             target_result,
             plan, 
             num_rooms,
-            400000,
+            4000000,
             1e-2,  # initial_temp
             1e-5,   # terminal_temp
         )
