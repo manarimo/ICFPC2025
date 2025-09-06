@@ -57,6 +57,7 @@ def solve(args) -> Aedificium | None:
             solution_line = output_lines[i - 1]
             break
     if solution_line is None:
+        print("焼きなましが解を見つけられませんでした")
         return None
     solution = [int(x) for x in solution_line.split()]
     # reconstruct Aedificium
@@ -117,7 +118,6 @@ def try_solve():
 
     candidates = [candidate for candidate in results if candidate is not None]    
     if not candidates:
-        print("推測に失敗しました。再度試行します。")
         return False
 
     estimated_aedificium = candidates[0]
