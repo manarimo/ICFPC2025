@@ -152,6 +152,15 @@ class APIClient:
             "map": map_data,
         }
         return self._make_json_post_request("/guess", request_data)
+    
+    def spoiler(self) -> Dict[str, Any]:
+        """
+        正解を取得する
+        """
+        request_data = {
+            "id": self.api_id,
+        }
+        return self._make_json_post_request("/spoiler", request_data)
 
 
 # 後方互換性のためのデフォルトクライアントインスタンス
