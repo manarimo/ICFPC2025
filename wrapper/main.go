@@ -99,6 +99,7 @@ func main() {
 				emitError(out, fmt.Errorf("reading input: %w", err))
 				_ = out.Flush()
 			}
+			time.Sleep(1 * time.Second)
 			continue
 		}
 		line := strings.TrimSpace(in.Text())
