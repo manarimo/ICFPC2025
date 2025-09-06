@@ -133,9 +133,11 @@ int n = 24;
 int plan[MAX_N * 18];
 int result[MAX_N * 18 + 1];
 int vertex[MAX_N * 18 + 1];
+int tmp_vertex[MAX_N * 18 + 1];
 int best_vertex[MAX_N * 18 + 1];
 int graph[MAX_N][6];
 int cnt[MAX_N][6];
+int in_cnt[MAX_N];
 vector<int> candidate[4];
 
 int get_random(int bit) {
@@ -149,6 +151,7 @@ int calc_score(vector<int>& bad) {
             graph[i][j] = -1;
             cnt[i][j] = 0;
         }
+        in_cnt[i] = 0;
     }
     
     int score = 0;
@@ -167,6 +170,22 @@ int calc_score(vector<int>& bad) {
             if (i > 0) bad.push_back(i);
             bad.push_back(i + 1);
             score++;
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < 6; j++) {
+            if (graph[i][j] != -1) in_cnt[graph[i][j]]++;
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        if (in_cnt[i] > 6) {
+            score += (in_cnt[i] - 6) * 5;
+            for (int j = 0; j < n * 18; j++) {
+                if (vertex[j + 1] == i) {
+                    if (j > 0) bad.push_back(j);
+                    bad.push_back(j + 1);
+                }
+            }
         }
     }
     return score;
@@ -196,30 +215,47 @@ int main() {
                 for (int i = 0; i <= n * 18; i++) vertex[i] = best_vertex[i];
             }
             
-            int pos;
-            if (random::get(100) < 30) {
-                pos = current_bad[random::get(current_bad.size())];
-            } else {
-                pos = random::get(1, n * 18);
-            }
-            int now = vertex[pos];
-            int next = get_random(result[pos]);
-            if (now == next) continue;
-            vertex[pos] = next;
-            int next_score = calc_score(next_bad);
-            if (sa.accept(current_score, next_score)) {
-                current_score = next_score;
-                current_bad.swap(next_bad);
-                if (current_score < best_score) {
-                    update = 0;
-                    best_score = current_score;
-                    best_bad = current_bad;
-                    for (int i = 0; i <= n * 18; i++) best_vertex[i] = vertex[i];
-                    printf("now : %d\n", best_score);
-                    fflush(stdout);
+            if (random::get(100) < 95) {
+                int pos;
+                if (random::get(100) < 30) {
+                    pos = current_bad[random::get(current_bad.size())];
+                } else {
+                    pos = random::get(1, n * 18);
+                }
+                int now = vertex[pos];
+                int next = get_random(result[pos]);
+                if (now == next) continue;
+                vertex[pos] = next;
+                int next_score = calc_score(next_bad);
+                if (sa.accept(current_score, next_score)) {
+                    current_score = next_score;
+                    current_bad.swap(next_bad);
+                } else {
+                    vertex[pos] = now;
                 }
             } else {
-                vertex[pos] = now;
+                int pos = random::get(n * 18);
+                int from = vertex[pos], edge = plan[pos], to = vertex[pos + 1];
+                for (int i = 0; i <= n * 18; i++) tmp_vertex[i] = vertex[i];
+                for (int i = 0; i < n * 18; i++) {
+                    if (vertex[i] == from && plan[i] == edge && vertex[i + 1] % 4 == to % 4) vertex[i + 1] = to;
+                }
+                int next_score = calc_score(next_bad);
+                if (sa.accept(current_score, next_score)) {
+                    current_score = next_score;
+                    current_bad.swap(next_bad);
+                } else {
+                    for (int i = 0; i <= n * 18; i++) vertex[i] = tmp_vertex[i];
+                }
+            }
+            
+            if (current_score < best_score) {
+                update = 0;
+                best_score = current_score;
+                best_bad = current_bad;
+                for (int i = 0; i <= n * 18; i++) best_vertex[i] = vertex[i];
+                printf("now : %d\n", best_score);
+                fflush(stdout);
             }
         }
     }
