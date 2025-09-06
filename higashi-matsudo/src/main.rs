@@ -139,6 +139,12 @@ fn dfs(
             {
                 continue;
             }
+            if let Some(a) = graph[to].get(backward_door)
+                && a != (from, forward_door)
+            {
+                continue;
+            }
+
             if to == from && backward_door == forward_door {
                 continue;
             }
@@ -150,7 +156,7 @@ fn dfs(
             }
 
             let mut fill_graph = false;
-            match graph[to].get(backward_door) {
+            match graph[from].get(forward_door) {
                 None => {
                     graph[from].set(forward_door, (to, backward_door));
                     graph[to].set(backward_door, (from, forward_door));
