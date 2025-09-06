@@ -1,0 +1,35 @@
+# Select command
+Format:
+```
+select
+<team_id>
+<problem_name>
+```
+
+Begins with a line containing only "select" (without quotes).
+Then following line contains an user id.
+Then following line contains an problem name.
+
+# Explore command
+Format:
+```
+explore
+<team_id>
+<N>
+<plan_1>
+<plan_2>
+...
+<plan_N>
+```
+
+# Guess command
+Format:
+```
+guess
+<team_id>
+<label_1> <label_2> ... <label_K>
+<starting_room>
+<N>
+<room_from> <door_from> <room_to> <door_to>
+(repeats N times)
+```

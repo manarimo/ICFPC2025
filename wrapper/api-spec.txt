@@ -1,0 +1,83 @@
+POST /select    selects a problem to solve.
+Request Body:
+
+{
+  "id": string,
+  "problemName": string,
+}
+
+Response Body:
+
+{
+  "problemName": string
+}
+
+The id should be exactly the same string produced by /register. The problemName may be any of the available problems, the full list of which is available on the leaderboard page. Each problem has a specified number of rooms, but the exact layout of the map is randomly generated each time a problem is selected.
+
+For testing purposes, a simple three-room labyrinth, small enough to be solvable by hand, may also be selected by using the problem name "probatio".
+
+Note if a problem is already selected, POSTing to /select will discard the old problem and generate a new one to solve.
+
+POST /explore    explores the ædificium.
+Request Body:
+
+{
+  "id": string,
+  "plans": [string],
+}
+
+Response Body:
+
+{
+  "results": [[int]],
+  "queryCount": int
+}
+
+Only POST to /explore after selecting a problem with /select.
+
+The id should be exactly the same string produced by /register. The plans field should consist of a list of route plans, each represented as a string of digits 0–5, specifying the numbers of each door to enter. For example, the string "0325" is the route plan that first enters door 0, then 3, then 2, then 5.
+
+The route plans are limited in length — Adso must make it out of the library by sunrise. They can enter at most 18n doorways per night, where n is the number of rooms in the library.
+
+The results field consists of a list of Adso’s records, one for each route plan submitted. Each record is a list of integer values — the 2-bit integer values observed by William upon entering each room. The queryCount field contains the total number of expeditions made into the Ædificium so far. Remember, Adso and William want to make as few expeditions into the library as possible, so guesses made with a low queryCount will rank higher in the leaderboards.
+
+Note: We allow multiple route plans to be submitted in a single HTTP request. This reduces our server costs, so to incentivise contestants batching their route plans, an additional one-point queryCount penalty applies per /explore request made.
+
+POST /guess    submit a candidate map.
+Request Body:
+
+{
+  "id": string,
+  "map": {
+    "rooms": [int],
+    "startingRoom": int,
+    "connections": [
+      {
+        "from": { 
+          "room": int, 
+          "door": int 
+        },
+        "to": { 
+          "room": int, 
+          "door": int 
+        }
+      }
+    ]
+  }
+}
+
+Response Body:
+
+{
+  "correct": boolean
+}
+
+Only POST to /guess after selecting a problem with /select.
+
+The id should be exactly the same string produced by /register. The map field contains a description of the layout of the library. The rooms field of this description is a list of the 2-bit integer labels read by William, one per room. Rooms are identified by their index into this list. The startingRoom field specifies the index of the initial room. The connections field contains a list of objects that specify how each room is connected, where the room fields specify the index of a room and the door field specifies a door number, 0–5. Note that the graph constructed is undirected, so if one has already connected, say, from door 3 of room 5 to door 0 of room 2, there is no need to connect from door 0 of room 2 to door 3 of room 5 — this connection will already exist.
+
+The field correct is true iff the submitted map is equivalent to the map generated when /select was invoked. By equivalent, we mean that they have the same number of rooms, and that they are indistinguishable by any route plan — if there is no route plan that demonstrates the difference between two maps of the same size, they are considered equivalent.
+
+If a correct map is submitted, if the queryCount for your team is an improvement on your previous score for the currently selected problem, then your score is updated.
+
+Regardless of if the submitted map is correct or not, the problem will be deselected and the library cleared when /guess is invoked. This means that, if your guess was incorrect, you will have to start again on a new map with /select.
