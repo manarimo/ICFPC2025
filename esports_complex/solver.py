@@ -6,8 +6,10 @@ import multiprocessing
 import os
 from typing import List, Dict, Any, Tuple
 from aedificium import Aedificium, create_random_aedificium, reconstruct_aedificium
-from collections import Counter
+from collections import Counter, defaultdict, namedtuple
 from statistics import mean
+
+from beam_search import BeamSearch
 
 
 def list_ngram_hashes(s: List[int], n: int) -> List[int]:
@@ -55,23 +57,10 @@ def evaluate_fitness(room_history: List[int], result: List[int], plan: str, num_
         float: 類似度のコスト（小さいほど類似）
     """
 
-    rooms = [None for _ in range(num_rooms)]
-    room_conflicts = 0  # 部屋ラベルの競合数をカウント
-    for room_id, room_label in zip(room_history, result):
-        if rooms[room_id] is not None and rooms[room_id] != room_label:
-            room_conflicts += 1
-            continue
-        rooms[room_id] = room_label
-    
-    # 未割り当ての部屋の数を計算
-    unassigned_rooms = sum(1 for room_label in rooms if room_label is None)
-    
-    # ペナルティの計算: 競合数 + 未割り当て部屋数を正規化
-    room_penalty = (room_conflicts + unassigned_rooms) / len(room_history)
-
     plan_ints = [int(p) for p in plan]
     door_destinations = {}
     incoming_doors = [set() for _ in range(num_rooms)]
+    doors_by_room_pair = defaultdict(set)
     door_conflicts = 0  # ドア接続の競合数をカウント
     for room_from, plan_int, room_to in zip(room_history[:-1], plan_ints, room_history[1:]):
         door = (room_from, plan_int)
@@ -80,59 +69,190 @@ def evaluate_fitness(room_history: List[int], result: List[int], plan: str, num_
             continue
         door_destinations[door] = room_to
         incoming_doors[room_to].add(door)
+        doors_by_room_pair[(room_from, room_to)].add(door)
 
     used_doors = set()
-    for room_id, incoming_door_set in enumerate(incoming_doors):
-        for incoming_door in incoming_door_set:
-            if incoming_door in used_doors:
-                continue
-            for door_id in range(6):
-                outgoing_door = (room_id, door_id)
-                if outgoing_door in used_doors:
-                    continue
-                incoming_room = incoming_door[0]
-                other_room = door_destinations.get(outgoing_door, incoming_room)
-                if other_room != incoming_room:
-                    continue
-                used_doors.add(incoming_door)
-                used_doors.add(outgoing_door)
-                break  # 1つの incoming_door につき1つの接続のみ
-    
-    total_doors = 6 * num_rooms
-    unused_doors = total_doors - len(used_doors)
+    for room_a in range(num_rooms):
+        for room_b in range(room_a + 1, num_rooms):
+            atob = list(doors_by_room_pair[(room_a, room_b)])
+            btoa = list(doors_by_room_pair[(room_b, room_a)])
 
-    connection_penalty = (unused_doors + door_conflicts) / total_doors
-    
-    # 各ペナルティを組み合わせて最終コストを計算
-    return mean([room_penalty, connection_penalty])
+            for door_a, door_b in zip(atob, btoa):
+                used_doors.add(door_a)
+                used_doors.add(door_b)
+
+            if len(atob) > len(btoa):            
+                for i in range(len(btoa), len(atob)):
+                    for door_id in range(6):
+                        incoming_door = atob[i]
+                        outgoing_door = (room_b, door_id)
+                        if outgoing_door in used_doors:
+                            continue
+                        incoming_room = room_a
+                        other_room = door_destinations.get(outgoing_door, incoming_room)
+                        if other_room != incoming_room:
+                            continue
+                        used_doors.add(incoming_door)
+                        used_doors.add(outgoing_door)
+                        break  # 1つの incoming_door につき1つの接続のみ
+                    door_conflicts += 1
+            else:
+                for i in range(len(atob), len(btoa)):
+                    for door_id in range(6):
+                        incoming_door = btoa[i]
+                        outgoing_door = (room_a, door_id)
+                        if outgoing_door in used_doors:
+                            continue
+                        incoming_room = room_b
+                        other_room = door_destinations.get(outgoing_door, incoming_room)
+                        if other_room != incoming_room:
+                            continue
+                        used_doors.add(incoming_door)
+                        used_doors.add(outgoing_door)
+                        break  # 1つの incoming_door につき1つの接続のみ
+                    door_conflicts += 1
 
 
-def mutate_one_element(room_history: List[int], num_rooms: int) -> List[int]:
+    # for room_id, incoming_door_set in enumerate(incoming_doors):
+    #     for incoming_door in incoming_door_set:
+    #         if incoming_door in used_doors:
+    #             continue
+    #         for door_id in range(6):
+    #             # TODO: 既にドアがあったらそれを使ってほしい
+                
+
+    #             outgoing_door = (room_id, door_id)
+    #             if outgoing_door in used_doors:
+    #                 continue
+    #             incoming_room = incoming_door[0]
+    #             other_room = door_destinations.get(outgoing_door, incoming_room)
+    #             if other_room != incoming_room:
+    #                 continue
+    #             used_doors.add(incoming_door)
+    #             used_doors.add(outgoing_door)
+    #             break  # 1つの incoming_door につき1つの接続のみ
+    #         # door_conflicts += 1
+
+    return door_conflicts / len(room_history)
+
+def mutate_one_element(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
     """
     ランダムな要素を変更
     """
     index = random.randrange(0, len(room_history))
-    updated = room_history[:]
-    updated[index] = random.randrange(0, num_rooms)
-    return updated
-    
+    room_id = room_history[index]
+    new_room_id = random.randrange(0, num_rooms)
+    new_room_id = new_room_id // 4 * 4 + room_id % 4
+    if new_room_id >= num_rooms:
+        new_room_id -= 4
 
-def get_random_mutation(room_history: List[int], num_rooms: int) -> List[int]:
+    updated = room_history[:]
+    updated[index] = new_room_id
+    return updated
+
+
+def mutate_multiple_elements(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
+    """
+    ランダムな要素を変更
+    """
+    room_id_subject_to_change = random.choice(room_history)
+    new_room_id = random.randrange(0, num_rooms)
+    new_room_id = new_room_id // 4 * 4 + room_id_subject_to_change % 4
+    if new_room_id >= num_rooms:
+        new_room_id -= 4
+    
+    updated = room_history[:]
+    for i in range(len(room_history)):
+        if room_history[i] == room_id_subject_to_change and random.random() < 0.3:
+            updated[i] = new_room_id
+    return updated
+
+
+def resolve_conflict(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
+    plan_ints = [int(p) for p in plan]
+    door_destinations = {}
+    incoming_doors = [set() for _ in range(num_rooms)]
+    door_conflicts = 0  # ドア接続の競合数をカウント
+    index_candidates = []
+    for i, (room_from, plan_int, room_to) in enumerate(zip(room_history[:-1], plan_ints, room_history[1:])):
+        door = (room_from, plan_int)
+        if door in door_destinations and door_destinations[door][3] != room_to:
+            index_candidates.append(i)
+            index_candidates.append(i + 1)
+            index_candidates.append(door_destinations[door][0])
+            index_candidates.append(door_destinations[door][0] + 1)
+            continue
+        door_destinations[door] = (i, room_from, plan_int, room_to)
+        incoming_doors[room_to].add(door)
+
+    if not index_candidates:
+        return room_history
+    
+    index = index_candidates[random.randrange(0, len(index_candidates))]
+
+    room_id = room_history[index]
+    new_room_id = random.randrange(0, num_rooms)
+    new_room_id = new_room_id // 4 * 4 + room_id % 4
+    if new_room_id >= num_rooms:
+        new_room_id -= 4
+
+    updated = room_history[:]
+    updated[index] = new_room_id
+
+    return updated
+
+def resolve_overflow(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
+    plan_ints = [int(p) for p in plan]
+    incoming_doors = [set() for _ in range(num_rooms)]
+    door_to_index = defaultdict(list)
+    for i, (room_from, plan_int, room_to) in enumerate(zip(room_history[:-1], plan_ints, room_history[1:])):
+        door = (room_from, plan_int)
+        door_to_index[door].append(i + 1)
+        incoming_doors[room_to].add(door)
+    
+    door_candidates = []
+    for incoming_door in incoming_doors:
+        if len(incoming_door) > 6:
+            door_candidates.extend(incoming_door)
+        
+    if not door_candidates:
+        return room_history
+    
+    door = door_candidates[random.randrange(0, len(door_candidates))]
+
+    updated = room_history[:]
+    for index in door_to_index[door]:
+        room_id = room_history[index]
+        new_room_id = random.randrange(0, num_rooms)
+        new_room_id = new_room_id // 4 * 4 + room_id % 4
+        if new_room_id >= num_rooms:
+            new_room_id -= 4
+
+        updated[index] = new_room_id
+
+    return updated
+
+def get_random_mutation(room_history: List[int], plan: str, num_rooms: int) -> List[int]:
         """
         ランダムな局所変更を適用（制約を満たす場合のみ）
         
         Args:
             room_history: 変更対象の部屋IDの履歴
+            plan: 使用するプラン
+            num_rooms: 部屋数
             
         Returns:
             List[int]: 変更後の部屋IDの履歴
         """
         mutation_functions = [
             mutate_one_element,
+            mutate_multiple_elements,
+            resolve_conflict,
+            resolve_overflow
         ]
         
-        mutation_func = random.choices(mutation_functions, weights=[1])[0]
-        return mutation_func(room_history, num_rooms)
+        mutation_func = random.choices(mutation_functions, weights=[1, 2, 1, 1])[0]
+        return mutation_func(room_history, plan, num_rooms)
 
 
 def solve_with_seed(args):
@@ -157,6 +277,7 @@ def solve_with_seed(args):
     
     # solve関数を実行
     solution = solve(target_result, plan, num_rooms, max_iterations, initial_temp, terminal_temp)
+    #solution = try_solve_beam(target_result, plan, num_rooms)
     fitness = evaluate_fitness(solution, target_result, plan, num_rooms)
     
     return solution, fitness
@@ -201,7 +322,7 @@ def solve(target_result: List[int], plan: str, num_rooms: int,
         
         for iteration in range(max_iterations):
             # 局所変更を適用
-            new_solution = get_random_mutation(current_solution, num_rooms)
+            new_solution = get_random_mutation(current_solution, plan, num_rooms)
             new_fitness = evaluate_fitness(new_solution, target_result, plan, num_rooms)
             
             # 適合度の差を計算（最小化問題）
@@ -285,7 +406,6 @@ def try_solve():
     
     problem_name = "secundus"
     num_rooms = 12
-    num_rooms = 6
     problem_name = f"random_room_size_{num_rooms}"
     plan_length = num_rooms * 18
     
@@ -307,7 +427,7 @@ def try_solve():
             num_rooms,
             400000,
             1e-2,  # initial_temp
-            1e-5,   # terminal_temp
+            1e-4,   # terminal_temp
         )
         process_args.append(args)
     
@@ -358,14 +478,77 @@ def try_solve():
     print(guess_response)
     return guess_response["correct"]
 
+BeamState = namedtuple("BeamState", ["state", "hash", "score"])
+
+def calc_hash(room_history: List[int]) -> int:
+    v = 0
+    for r in room_history:
+        v *= 1000000009
+        v += r
+        v %= 1000000009
+    return v
+
+def expand_beam(room_history: List[int], plan: str, target_result: List[int], num_rooms: int) -> BeamState:
+    mutation_functions = [
+        resolve_conflict,
+        resolve_overflow,
+    ]
+
+    res = []
+    for func in mutation_functions:
+      new_state = func(room_history, plan, num_rooms)
+      new_score = evaluate_fitness(new_state, target_result, plan, num_rooms)
+      res.append(BeamState(new_state, calc_hash(new_state), new_score))
+
+    for _ in range(50):
+        sample_size = random.randrange(1, 10)
+        indices = random.sample(range(len(room_history)), sample_size)
+        updated = room_history[:]
+        for index in indices:
+            room_id = room_history[index]
+            new_room_id = random.randrange(0, num_rooms)
+            new_room_id = new_room_id // 4 * 4 + room_id % 4
+            if new_room_id >= num_rooms:
+                new_room_id -= 4
+            updated[index] = new_room_id
+        score = evaluate_fitness(updated, target_result, plan, num_rooms)
+        res.append(BeamState(updated, calc_hash(updated), score))
+
+    return res
+
+def try_solve_beam(target_result: List[int], plan: str, num_rooms: int):
+    beam_search = BeamSearch[BeamState](
+        beam_size=100,
+        max_steps=100000,
+        key=lambda x: x.hash
+    )
+
+    initial_states = []
+    for _ in range(100):
+        room_history = []
+        for i, label in enumerate(target_result):
+            room_id = random.randrange(0, num_rooms // 4) * 4 + label
+            if room_id >= num_rooms:
+                room_id -= 4
+            room_history.append(room_id)
+        score = evaluate_fitness(room_history, target_result, plan, num_rooms),
+        initial_states.append(BeamState(room_history, calc_hash(room_history), score))
+
+    res = beam_search.run(
+        initial_states=initial_states,
+        expand=lambda s: expand_beam(s.state, plan, target_result, num_rooms),
+        score=lambda s: s.score,
+        is_goal=lambda s: s.score == 0
+    )
+    return res
 
 def main():
-    # while True:
-    #     if try_solve():
-    #         break
-    #     else:
-    #         print("推測に失敗しました。再度試行します。")
-    try_solve()
+    while True:
+        if try_solve():
+            break
+        else:
+            print("推測に失敗しました。再度試行します。")
+    # try_solve()
 
 
 if __name__ == "__main__":

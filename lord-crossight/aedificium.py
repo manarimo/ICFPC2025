@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Set
 import json
 import random
 from collections import defaultdict
@@ -311,7 +311,8 @@ def create_random_aedificium(num_rooms: int) -> Aedificium:
     random.shuffle(rooms)
     
     # 開始部屋をランダム選択
-    starting_room = random.randint(0, num_rooms - 1)
+    zero_rooms = [i for i in range(num_rooms) if rooms[i] == 0]
+    starting_room = random.choice(zero_rooms)
     
     # 条件を満たすまで生成を繰り返す
     max_attempts = 1000  # 無限ループを防ぐための上限
@@ -384,13 +385,23 @@ def reconstruct_aedificium(plan: str, result: List[int], room_history: List[int]
 
     plan_ints = [int(p) for p in plan]
     door_destinations = {}
-    incoming_doors = [set() for _ in range(num_rooms)]
     for room_from, plan_int, room_to in zip(room_history[:-1], plan_ints, room_history[1:]):
         door = (room_from, plan_int)
         if door in door_destinations and door_destinations[door] != room_to:
             print(f"DEBUG: door={door}, door_destinations[door]={door_destinations[door]}, room_to={room_to}")
             return None
         door_destinations[door] = room_to
+
+    connections = build_connections(door_destinations)
+    if connections is None:
+        return None
+    return Aedificium(rooms, starting_room=room_history[0], connections=connections)
+
+
+def build_connections(door_destinations: Dict[Tuple[int, int], int]) -> List[Dict[str, Any]] | None:
+    num_rooms = len(door_destinations) // 6
+    incoming_doors = [set() for _ in range(num_rooms)]
+    for door, room_to in door_destinations.items():
         incoming_doors[room_to].add(door)
 
     connections = []
@@ -426,7 +437,7 @@ def reconstruct_aedificium(plan: str, result: List[int], room_history: List[int]
                     "from": {"room": room_id, "door": door_id},
                     "to": {"room": room_id, "door": door_id}
                 })
-    return Aedificium(rooms, starting_room=room_history[0], connections=connections)
+    return connections
 
 
 def test_reconstruct_aedificium():
