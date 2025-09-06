@@ -14,6 +14,7 @@ export function GuessPanel({ gameState, onUpdateGameState }: GuessPanelProps) {
   const [numRooms, setNumRooms] = useState('1');
   const [roomInputs, setRoomInputs] = useState<string[]>(['']);
   const [startingRoom, setStartingRoom] = useState('0');
+  const [labelsInput, setLabelsInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ correct: boolean; message: string } | null>(null);
@@ -36,12 +37,13 @@ export function GuessPanel({ gameState, onUpdateGameState }: GuessPanelProps) {
   const parseAnswer = () => {
     const connections = [];
     const rooms = [];
+    const labels = labelsInput.split(/\s+/);
 
     for (let roomIndex = 0; roomIndex < roomInputs.length; roomIndex++) {
       const roomInput = roomInputs[roomIndex].trim();
       if (!roomInput) continue;
 
-      rooms.push(roomIndex);
+      rooms.push(parseInt(labels[roomIndex]));
 
       // Parse 6 pairs of (roomTo, doorTo)
       const pairRegex = /\(\s*(\d+)\s*,\s*(\d+)\s*\)/g;
@@ -152,6 +154,21 @@ export function GuessPanel({ gameState, onUpdateGameState }: GuessPanelProps) {
               disabled={isLoading}
             />
           </div>
+        </div>
+
+        <div>
+          <label htmlFor="labels" className="block text-sm font-medium text-gray-700 mb-1">
+            Labels
+          </label>
+          <input
+            type="text"
+            id="labels"
+            value={labelsInput}
+            onChange={(e) => setLabelsInput(e.target.value)}
+            min="0"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={isLoading}
+          />
         </div>
 
         <div>
