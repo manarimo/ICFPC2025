@@ -86,9 +86,6 @@ async fn main() -> Result<()> {
         println!("response: {:?}", response);
     } else {
         println!("No solution found");
-        println!("n={}", n);
-        println!("plan len={} : {:?}", a.len(), a);
-        println!("colors len={} : {:?}", b.len(), b);
         return Err("No solution found".into());
     }
 
