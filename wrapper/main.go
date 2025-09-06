@@ -174,9 +174,54 @@ func main() {
 				_ = out.Flush()
 				continue
 			}
+			// Forward non-2xx body as-is
+			if _, err := out.Write(respBody); err != nil {
+				emitError(out, fmt.Errorf("writing output: %w", err))
+				_ = out.Flush()
+				continue
+			}
+			if len(respBody) == 0 || respBody[len(respBody)-1] != '\n' {
+				_, _ = out.WriteString("\n")
+			}
+			_ = out.Flush()
+			continue
 		}
 
-		// Write raw response body, ensure newline separation and flush
+		// Success responses: for explore, convert to plain text lines; otherwise forward body
+		if cmd == "explore" {
+			var ex struct {
+				Results    [][]int `json:"results"`
+				QueryCount int     `json:"queryCount"`
+			}
+			if err := json.Unmarshal(respBody, &ex); err != nil {
+				// If parsing fails, forward raw body as a fallback
+				if _, werr := out.Write(respBody); werr != nil {
+					emitError(out, fmt.Errorf("writing output: %w", werr))
+					_ = out.Flush()
+					continue
+				}
+				if len(respBody) == 0 || respBody[len(respBody)-1] != '\n' {
+					_, _ = out.WriteString("\n")
+				}
+				_ = out.Flush()
+				continue
+			}
+
+			// Emit one line per result list: "<len> v1 v2 ... vN\n"
+			for _, arr := range ex.Results {
+				// Write length
+				_, _ = out.WriteString(strconv.Itoa(len(arr)))
+				for _, v := range arr {
+					_, _ = out.WriteString(" ")
+					_, _ = out.WriteString(strconv.Itoa(v))
+				}
+				_, _ = out.WriteString("\n")
+			}
+			_ = out.Flush()
+			continue
+		}
+
+		// Default: forward raw response body
 		if _, err := out.Write(respBody); err != nil {
 			emitError(out, fmt.Errorf("writing output: %w", err))
 			_ = out.Flush()

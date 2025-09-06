@@ -1,5 +1,5 @@
-out = open('wrapper-in', mode='w')
-inf = open('wrapper-out', mode='r')
+out = open('/tmp/to-wrapper', mode='w')
+inf = open('/tmp/from-wrapper', mode='r')
 
 print('select', file=out)
 print('foo', file=out)

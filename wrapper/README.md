@@ -3,7 +3,10 @@ Wrapper Tool (stdin/stdout → HTTP proxy)
 Overview
 
 - Reads commands from stdin using the custom text protocol in `io-spec.txt` (not raw JSON).
-- Proxies to the API server at `API_BASE` and writes the raw HTTP response body to stdout (JSON from the server).
+- Proxies to the API server at `API_BASE`.
+- Output format:
+  - `explore`: plain text, one line per result list: `<len> v1 v2 ... vN`.
+  - other endpoints: raw JSON from the server.
 - On parsing/network errors, prints a small JSON error to stdout.
 
 Environment
@@ -61,4 +64,4 @@ Notes
 - Communication uses two FIFOs: the first arg is read-only (commands to wrapper), the second is write-only (responses from wrapper).
 - The wrapper exits when the writer on the input FIFO closes (EOF). Run it under a supervisor if you want respawn behavior.
 - Blank lines are ignored only where the protocol does not expect them; malformed or truncated input results in a JSON error.
-- Non-2xx responses are printed as-is; if such a response has an empty body, a JSON error with the status code is emitted.
+- For `explore`, success responses are converted to plain text lines; non-2xx responses are forwarded as-is.
