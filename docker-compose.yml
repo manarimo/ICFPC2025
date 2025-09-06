@@ -21,6 +21,19 @@ services:
       - "3000:3000"
     environment:
       - ICFP_API_BASE_URL=http://lord-crossight:8000
+
+  wrapper:
+    build:
+      context: ./wrapper
+      dockerfile: Dockerfile
+    container_name: wrapper
+    environment:
+      - API_BASE=https://lord-crossight-553250624194.asia-northeast1.run.app
+    network_mode: host
+    volumes:
+      - /tmp/to-wrapper:/to-wrapper
+      - /tmp/from-wrapper:/from-wrapper
+
     
 networks:
   default:
