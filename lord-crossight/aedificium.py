@@ -1,8 +1,26 @@
 from typing import List, Dict, Any, Tuple, Set
 import json
 import random
-from collections import defaultdict
+import re
+import enum
 
+
+class Action(enum.Enum):
+    MOVE = 0
+    USE_CHARCOAL = 1
+
+
+def parse_plan(plan: str) -> List[Tuple[Action, int]]:
+    instructions = []
+    p = 0
+    while p < len(plan):
+        if plan[p] == '[':
+            instructions.append((Action.USE_CHARCOAL, int(plan[p+1])))
+            p += 3
+        else:
+            instructions.append((Action.MOVE, int(plan[p])))
+            p += 1
+    return instructions
 
 class Aedificium:
     """
@@ -70,6 +88,18 @@ class Aedificium:
             "results": results,
             "queryCount": len(plans)
         }
+
+    def _parse_plan(self, plan: str) -> List[Tuple[Action, int]]:
+        instructions = []
+        p = 0
+        while p < len(plan):
+            if plan[p] == '[':
+                instructions.append((Action.USE_CHARCOAL, int(plan[p+1])))
+                p += 3
+            else:
+                instructions.append((Action.MOVE, int(plan[p])))
+                p += 1
+        return instructions
     
     def _execute_plan(self, plan: str) -> List[int]:
         """
@@ -82,21 +112,21 @@ class Aedificium:
             訪問した部屋のラベルのリスト
         """
         current_room = self.starting_room
-        labels = [self.rooms[current_room]]  # 開始部屋のラベルを記録
+        current_labels = self.rooms[:]
+        labels = [current_labels[current_room]]  # 開始部屋のラベルを記録
         
-        for door_char in plan:
-            door = int(door_char)
-            
-            # 現在の部屋から指定されたドアを通って次の部屋へ移動
-            if (current_room, door) in self._connection_map:
-                next_room, _ = self._connection_map[(current_room, door)]
-                current_room = next_room
-                labels.append(self.rooms[current_room])
+        for action, action_arg in parse_plan(plan):
+            if action == Action.MOVE:
+                door = action_arg
+                # 現在の部屋から指定されたドアを通って次の部屋へ移動
+                if (current_room, door) in self._connection_map:
+                    next_room, _ = self._connection_map[(current_room, door)]
+                    current_room = next_room
             else:
-                # 接続が存在しない場合は現在の部屋に留まる
-                # （仕様によってはエラーを投げる場合もあるが、ここでは安全側に倒す）
-                labels.append(self.rooms[current_room])
-        
+                label = action_arg
+                current_labels[current_room] = label
+            labels.append(current_labels[current_room])
+            
         return labels
     
     def to_dict(self) -> Dict[str, Any]:
@@ -152,7 +182,7 @@ class Aedificium:
         data = json.loads(json_str)
         return cls.from_dict(data)
     
-    def equivalence_test(self, other: 'Aedificium') -> str:
+    def equivalence_test(self, other: 'Aedificium', full_contest_feature: bool = False) -> str:
         """
         他のAedificiumと等価かどうかを詳細にテストする
         
@@ -167,7 +197,7 @@ class Aedificium:
             return "DIFFERENT_ROOM_COUNT"
         
         num_rooms = len(self.rooms)
-        plan_length = num_rooms * 18
+        plan_length = num_rooms * (6 if full_contest_feature else 18)
         
         # 100ケースのランダムなplanでテスト
         for _ in range(100):
@@ -181,11 +211,27 @@ class Aedificium:
             # 結果が異なる場合、そのplanを返す
             if self_result != other_result:
                 return f"PLAN_FAILED: {plan}"
+
+        if not full_contest_feature:
+            return None
+
+        # 100ケースのランダムなplanでテスト 木炭付き
+        for _ in range(100):
+            # ランダムなplanを生成（0-5のドア番号と0-3の木炭番号）
+            plan = ''.join([random.choice("012345") + "[" + random.choice("0123") + "]" for _ in range(plan_length)])
+            
+            # 両方のAedificiumで同じplanを実行
+            self_result = self._execute_plan(plan)
+            other_result = other._execute_plan(plan)
+            
+            # 結果が異なる場合、そのplanを返す
+            if self_result != other_result:
+                return f"PLAN_WITH_CHARCOAL_FAILED: {plan}"
         
         # すべてのテストケースで成功した場合
         return None
 
-    def is_equivalent_to(self, other: 'Aedificium') -> bool:
+    def is_equivalent_to(self, other: 'Aedificium', full_contest_feature: bool = False) -> bool:
         """
         他のAedificiumと等価かどうかを判定する（後方互換性のあるメソッド）
         
@@ -196,7 +242,7 @@ class Aedificium:
             bool: 等価な場合True
         """
         # equivalence_testメソッドを使用して判定
-        result = self.equivalence_test(other)
+        result = self.equivalence_test(other, full_contest_feature)
         return result is None
     
     def __repr__(self) -> str:

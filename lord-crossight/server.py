@@ -10,7 +10,7 @@ import os
 from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from aedificium import Aedificium, create_random_aedificium
+from aedificium import Aedificium, create_random_aedificium, parse_plan, Action
 
 class IdStates:
     """各idの状態を管理するクラス"""
@@ -240,12 +240,13 @@ class ICFPMockServer(BaseHTTPRequestHandler):
             self._send_error(400, "plans must be a list")
             return
         
-        # プラン数の制限チェック（18n doorways per night）
-        total_plan_length = sum(len(plan) for plan in plans)
-        max_length = 18 * len(current_aedificium.rooms)
+        # プラン数の制限チェック（6n doorways per night）
+        parsed_plans = [parse_plan(plan) for plan in plans]
+        plan_lengths = [len([(move, arg) for move, arg in plan if move == Action.MOVE]) for plan in parsed_plans]
+        max_length = 6 * len(current_aedificium.rooms)
         
-        if total_plan_length > max_length:
-            self._send_error(400, f"Total plan length ({total_plan_length}) exceeds limit ({max_length})")
+        if max(plan_lengths) > max_length:
+            self._send_error(400, f"max plan length ({max(plan_lengths)}) exceeds limit ({max_length})")
             return
         
         # 各プランの検証
@@ -255,8 +256,8 @@ class ICFPMockServer(BaseHTTPRequestHandler):
                 return
             
             # プラン文字列の検証（0-5の数字のみ）
-            if not all(c in '012345' for c in plan):
-                self._send_error(400, "Plan must contain only digits 0-5")
+            if not all(c in '012345[]' for c in plan):
+                self._send_error(400, "Plan must contain only digits 0-5 and []")
                 return
         
         # 実際のAedificiumを使用して探索を実行
@@ -398,6 +399,18 @@ def initialize_aedificium(problem_name: str) -> Aedificium:
         "tertius": 18,
         "quartus": 24,
         "quintus": 30,
+
+        "aleph": 12,
+        "beth": 24,
+        "gimel": 36,
+        "daleth": 48,
+        "he": 60,
+
+        "vau": 18,
+        "zain": 36,
+        "hhet": 54,
+        "teth": 72,
+        "iod": 90,
     }
     if problem_name in public_names:
         return create_random_aedificium(num_rooms=public_names[problem_name])
