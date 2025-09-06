@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
     let client = ApiClient::new(BackendType::Mock)?;
 
     // 部屋の数
-    let n = client.select("probatio").await?;
+    let n = client.select("quartus").await?;
 
     // 移動の履歴
     let a = generate_random_plan(n * 18, &mut rng);
@@ -103,7 +103,7 @@ fn dfs(
     assert!(color[from].is_some());
     assert_eq!(door_history.len(), color_history.len());
     let now = Instant::now();
-    if now - start > Duration::from_secs(10) {
+    if now - start > Duration::from_secs(30) {
         return false;
     }
     if door_history.is_empty() {
