@@ -148,16 +148,21 @@ fn dfs(
             if to == from && backward_door == forward_door {
                 continue;
             }
-            if to == from && graph[from].len() >= 5 {
-                continue;
-            }
-            if to != from && (graph[from].len() >= 6 || graph[to].len() >= 6) {
-                continue;
-            }
 
             let mut fill_graph = false;
             match graph[from].get(forward_door) {
                 None => {
+                    // 次数制約は新規にエッジを張る場合のみ確認する
+                    if to == from {
+                        // 自己ループは同一ノードで2本のドアを消費する
+                        if graph[from].len() + 2 > SIX {
+                            continue;
+                        }
+                    } else {
+                        if graph[from].len() + 1 > SIX || graph[to].len() + 1 > SIX {
+                            continue;
+                        }
+                    }
                     graph[from].set(forward_door, (to, backward_door));
                     graph[to].set(backward_door, (from, forward_door));
                     fill_graph = true;
