@@ -1,12 +1,12 @@
 pub mod union_find;
 
-use reqwest::header::{HeaderMap, HeaderValue, InvalidHeaderValue};
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const BASE_URL: &str = "http://localhost:8000";
+const BASE_URL: &str = "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com";
 const MOCK_ID: &str = "kenkoooo";
-const OFFICIAL_ID: &str = "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ";
+const OFFICIAL_ID: &str = "";
 
 #[derive(Clone, Copy)]
 pub enum Problem {
@@ -154,20 +154,10 @@ impl ToString for ExploreQuery {
     }
 }
 
-impl TryFrom<BackendType> for HeaderValue {
-    type Error = InvalidHeaderValue;
-    fn try_from(backend_type: BackendType) -> std::result::Result<Self, Self::Error> {
-        match backend_type {
-            BackendType::Mock => "mock".parse(),
-            BackendType::Official => "official".parse(),
-        }
-    }
-}
-
 impl ApiClient {
     pub fn new(backend_type: BackendType) -> Result<Self> {
         let mut headers = HeaderMap::new();
-        headers.insert("x-backend-type", backend_type.try_into()?);
+        headers.insert("x-backend-type", "mock".parse()?);
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .build()?;
