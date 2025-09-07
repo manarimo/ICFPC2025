@@ -205,7 +205,8 @@ def try_solve(args):
 
     #estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:6], spoiler_aedificium.starting_room, conns)
 
-    random_walk_stalks = 10
+    # Number of random-walk augmentations to gather extra information
+    random_walk_stalks = getattr(args, "deep_expeditions", 10)
     if mode == 'DOUBLE':
         # ランダムウォークして情報をあつめる
         covering_path = estimated_aedificium.build_covering_path()
@@ -270,6 +271,10 @@ def main():
     parser.add_argument(
         "--parallelism", "-j", type=int, default=None,
         help="Number of worker processes (default: cpu_count-1)",
+    )
+    parser.add_argument(
+        "--deep-expeditions", type=int, default=10,
+        help="Number of deep expeditions (random-walk stalks) used when refining DOUBLE mode",
     )
     args = parser.parse_args()
     # normalize mode to uppercase if provided

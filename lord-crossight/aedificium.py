@@ -245,6 +245,90 @@ class Aedificium:
         result = self.equivalence_test(other, full_contest_feature)
         return result is None
     
+
+    def inject_charcoal_to_walk(self, plan: str) -> str:
+        visited = [False] * len(self.rooms)
+
+        # 縮小マップでまだ訪問したことがない頂点にきたらラベルを張り替える
+        current_room = self.starting_room
+        visited[current_room] = True
+        new_plan = f"[{(self.rooms[current_room] + 1) % 4}]"
+
+        for door_str in plan:
+            new_plan += door_str
+            door_num = int(door_str)
+            door = self._connection_map[(current_room, door_num)]
+            next_room = door[0]
+            if not visited[next_room]:
+                # 縮小マップでまだ訪問したことがない頂点にきたらラベルを張り替える
+                visited[next_room] = True
+                new_plan += f"[{(self.rooms[next_room] + 1) % 4}]"
+            current_room = next_room
+        return new_plan
+
+    def build_dest_maps_double(self, plan_str: str, result: List[int]) -> Dict[Tuple[int, int], int] | None:
+        # n = 縮小マップの次数 (実際のn / 2)
+        n = len(self.rooms)
+        dests = {}
+        plan = parse_plan(plan_str)
+        print(plan)
+
+        # 縮小マップの上で動きをシミュレートし、ラベルが縮小マップと異なる場合はレイヤーをまたいだと判断する
+        current_room = self.starting_room
+        current_layer = 0
+        for ((action, door_num), label, (next_action, _)) in zip(plan, result[1:], (plan[1:] + [(None, None)])):
+            #print("cur", f"({current_room}, {current_layer})")
+            if action == Action.USE_CHARCOAL:
+                current_layer = 0
+                continue
+            door = self._connection_map[(current_room, door_num)]
+            next_room = door[0]
+            if next_action != Action.USE_CHARCOAL and self.rooms[next_room] == label:
+                next_layer = 1
+            else:
+                next_layer = 0
+            from_door = (current_room + current_layer * n, door_num)
+            to_room = next_room + next_layer * n
+            if from_door in dests and dests[from_door] != to_room:
+                print(f"[ERROR] Conflicting door: {from_door}, {to_room}, {dests[from_door]}")
+                return None
+            dests[from_door] = to_room
+            current_room, current_layer = next_room, next_layer
+        return dests
+
+    def build_covering_path(self) -> str:
+        n = len(self.rooms)
+        done = [False] * n
+        cur_room = self.starting_room
+        final_plan = ""
+        for target in range(n):
+            if done[target]:
+                continue
+            visited = [False] * n
+            prev = [None] * n
+            visited[cur_room] = True
+            q = [(cur_room, "")]
+            while len(q) > 0:
+                (room, plan) = q.pop()
+                if room == target:
+                    final_plan += plan
+                    r = target
+                    while r is not None:
+                        done[r] = True
+                        r = prev[r]
+                    cur_room = target
+                    break
+                for door in range(6):
+                    conn = self._connection_map[(room, door)]
+                    to_room = conn[0]
+                    if visited[to_room]:
+                        continue
+                    visited[to_room] = True
+                    prev[to_room] = room
+                    q.append((to_room, plan + str(door)))
+        return final_plan
+
+
     def __repr__(self) -> str:
         """
         オブジェクトの文字列表現
@@ -544,7 +628,9 @@ def reconstruct_aedificium(plan: str, result: List[int], room_history: List[int]
     return Aedificium(rooms, starting_room=room_history[0], connections=connections)
 
 
-def build_connections(door_destinations: Dict[Tuple[int, int], int]) -> List[Dict[str, Any]] | None:
+def build_connections(door_destinations: Dict[Tuple[int, int], int], num_rooms: int | None = None) -> List[Dict[str, Any]] | None:
+    if num_rooms is None:
+        num_rooms = len(door_destinations) // 6
     num_rooms = len(door_destinations) // 6
     incoming_doors = [set() for _ in range(num_rooms)]
     for door, room_to in door_destinations.items():
