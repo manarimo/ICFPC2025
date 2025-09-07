@@ -199,7 +199,7 @@ async fn trial(
         _ => unreachable!(),
     }
 
-    let mut cur = 0;
+    let mut cur = uf.find(0);
     for event in events.into_iter().skip(1) {
         match event {
             Event::VisitRoom { label } => {
@@ -224,7 +224,7 @@ async fn trial(
 
     for pos in 0..(plan.len() / 2) {
         // generate new plan
-        let last_node_id = reach(&nodes, &plan[0..pos]);
+        let last_node_id = reach(&nodes, &plan[0..pos], uf);
         let mut new_plan = plan.clone();
         new_plan.insert(
             pos,
@@ -238,7 +238,7 @@ async fn trial(
         // find marked nodes
         let mut cur = uf.find(0);
         let mut mark = BTreeSet::new();
-        for event in events {
+        for (i, &event) in events.iter().enumerate() {
             match event {
                 Event::VisitRoom { label } => {
                     if label != nodes[cur].label {
@@ -250,7 +250,10 @@ async fn trial(
                         let next = uf.find(next);
                         cur = next;
                     }
-                    None => unreachable!("closed door found when marking cur={cur} door={door}"),
+                    None => unreachable!(
+                        "closed door found when marking cur={cur} door={door} plan={:?} new_plan={:?} events={:?} i={i}",
+                        plan, new_plan, events,
+                    ),
                 },
                 Event::Overwrite { label } => {
                     if label != nodes[cur].label {
@@ -273,42 +276,54 @@ async fn trial(
                 uf.unite(node_id, representative_id);
             }
 
-            for node in nodes.iter_mut() {
-                for door in 0..6 {
-                    if let Some(next) = node.neighbors[door] {
-                        node.neighbors[door] = Some(uf.find(next));
-                    }
-                }
-            }
-
             let mut groups = vec![vec![]; nodes.len()];
             for node_id in 0..nodes.len() {
                 groups[uf.find(node_id)].push(node_id);
             }
 
+            // グループ内でドアの先を統一する
             for group in groups {
                 for door in 0..6 {
-                    let mut mark = BTreeSet::new();
+                    let mut next_mark = BTreeSet::new();
                     for &node_id in &group {
                         if let Some(next) = nodes[node_id].neighbors[door] {
-                            mark.insert(next);
+                            next_mark.insert(next);
                         }
                     }
 
-                    if let Some(&representative_id) = mark.iter().next() {
-                        for &node_id in mark.iter() {
-                            uf.unite(node_id, representative_id);
-                        }
-
-                        for &node_id in &group {
-                            nodes[node_id].neighbors[door] = Some(representative_id);
-                        }
+                    if next_mark.len() == 0 {
+                        continue;
                     }
 
-                    if mark.len() > 1 {
-                        queue.push_back(mark);
+                    let next_min_id = *next_mark.iter().next().expect("no mark");
+                    let next_root_id = uf.find(next_min_id);
+                    for &next_marked in next_mark.iter() {
+                        uf.unite(next_marked, next_root_id);
+                    }
+
+                    let next_root_id = uf.find(next_root_id);
+                    for &node_id in &group {
+                        nodes[node_id].neighbors[door] = Some(next_root_id);
+                    }
+
+                    if next_mark.len() > 1 {
+                        queue.push_back(next_mark);
                     }
                 }
+            }
+        }
+
+        // validate groups
+        let mut groups = vec![vec![]; nodes.len()];
+        for node_id in 0..nodes.len() {
+            groups[uf.find(node_id)].push(node_id);
+        }
+        for group in groups {
+            for door in 0..6 {
+                let all_same = group.iter().all(|&node_id| {
+                    nodes[node_id].neighbors[door] == nodes[group[0]].neighbors[door]
+                });
+                assert!(all_same);
             }
         }
     }
@@ -331,12 +346,13 @@ impl Node {
     }
 }
 
-fn reach(nodes: &[Node], plan: &[ExploreQuery]) -> usize {
-    let mut cur = 0;
+fn reach(nodes: &[Node], plan: &[ExploreQuery], uf: &mut UnionFind) -> usize {
+    let mut cur = uf.find(0);
     for query in plan {
         match query {
             ExploreQuery::Open { door } => {
                 cur = nodes[cur].neighbors[*door as usize].expect("door is not open");
+                cur = uf.find(cur);
             }
             ExploreQuery::Charcoal { .. } => unreachable!(),
         }

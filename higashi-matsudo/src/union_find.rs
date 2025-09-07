@@ -42,8 +42,4 @@ impl UnionFind {
         self.size -= 1;
         true
     }
-
-    pub fn len(&self) -> usize {
-        self.size
-    }
 }
