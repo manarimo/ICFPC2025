@@ -4,9 +4,9 @@ use reqwest::header::{HeaderMap, HeaderValue, InvalidHeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const BASE_URL: &str = "http://localhost:8000";
+const BASE_URL: &str = "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com";
 const MOCK_ID: &str = "kenkoooo";
-const OFFICIAL_ID: &str = "X6G0RVKUlX20I8XSUsnkIQ";
+const OFFICIAL_ID: &str = "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ";
 
 #[derive(Clone, Copy)]
 pub enum Problem {
@@ -84,6 +84,16 @@ pub enum BackendType {
     Mock,
     Official,
 }
+
+impl BackendType {
+    pub fn directory(&self) -> &str {
+        match self {
+            BackendType::Mock => "mock",
+            BackendType::Official => "graph-dump",
+        }
+    }
+}
+
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Vertex {

@@ -16,7 +16,8 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut rng = rand::rng();
-    let client = ApiClient::new(BackendType::Mock)?;
+    let backend_type = BackendType::Official;
+    let client = ApiClient::new(backend_type)?;
 
     loop {
         let problems = [
@@ -66,7 +67,7 @@ async fn main() -> Result<()> {
                 return Err("incorrect guess".into());
             }
 
-            save_guess(&guess, problem)?;
+            save_guess(&guess, problem, backend_type)?;
         }
     }
 }
@@ -256,13 +257,13 @@ fn find_different_label(label: u8) -> u8 {
     (0..).find(|&x| x != label).expect("unreachable")
 }
 
-fn save_guess(guess: &GuessRequestMap, problem: Problem) -> Result<()> {
+fn save_guess(guess: &GuessRequestMap, problem: Problem, backend_type: BackendType) -> Result<()> {
     let unix_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("failed to get unix time")
         .as_secs();
 
-    let dir = format!("../graph-dump/{}", problem.to_str());
+    let dir = format!("../{}/{}", backend_type.directory(), problem.to_str());
     std::fs::create_dir_all(&dir)?;
     let file_name = format!("{dir}/{unix_time}.json");
     let mut file = File::create(file_name)?;
