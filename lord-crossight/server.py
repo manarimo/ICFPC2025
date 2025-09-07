@@ -6,6 +6,7 @@ ICFP Contest 2025 Mock API Server
 
 import json
 import re
+from random import Random
 import os
 from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -437,6 +438,10 @@ def initialize_aedificium(problem_name: str) -> Aedificium:
     if problem_name in public_names:
         single_rooms, duplication_factor = public_names[problem_name]
         return create_random_aedificium(single_rooms=single_rooms, duplication_factor=duplication_factor)
+
+    if re.match(r"random_full_(\d+)_(\d+)_(\d+)", problem_name):
+        single_rooms, duplication_factor, random_seed = map(int, problem_name.split("_")[2:])
+        return create_random_aedificium(single_rooms=single_rooms, duplication_factor=duplication_factor, random_state=Random(random_seed))
 
     if re.match(r"random_full_(\d+)_(\d+)", problem_name):
         single_rooms, duplication_factor = map(int, problem_name.split("_")[2:])
