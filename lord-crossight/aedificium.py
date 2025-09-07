@@ -252,6 +252,62 @@ class Aedificium:
         return f"Aedificium(rooms={len(self.rooms)}, starting_room={self.starting_room}, connections={len(self.connections)})"
 
 
+def deduplicate_aedificium(aedificium: Aedificium) -> Aedificium:
+    """
+    Aedificiumを重複を削除したAedificiumに変換する
+    重複については、create_random_aedificiumの実装を仮定する
+    
+    Args:
+        aedificium: 重複を削除するAedificium
+    
+    Returns:
+        Aedificium: 重複を削除したAedificium
+    """
+    num_rooms = len(aedificium.rooms)
+    for duplication_factor in [3, 2]:
+        if num_rooms % duplication_factor != 0:
+            continue
+        single_rooms = num_rooms // duplication_factor
+
+        rooms = aedificium.rooms[:num_rooms // duplication_factor]
+        starting_room = aedificium.starting_room
+        connections = []
+        used_doors = set()
+        used_connections = set()
+
+        ok = True
+        for connection in aedificium.connections:
+            new_from = {
+                "room": connection['from']['room'] % single_rooms,
+                "door": connection['from']['door']
+            }
+            new_to = {
+                "room": connection['to']['room'] % single_rooms,
+                "door": connection['to']['door']
+            }
+            from_tag = (new_from['room'], new_from['door'])
+            to_tag = (new_to['room'], new_to['door'])
+            connection_tag = (from_tag, to_tag)
+            if connection_tag in used_connections:
+                continue
+            used_connections.add(connection_tag)
+            if from_tag in used_doors or to_tag in used_doors:
+                # used in different connection. contradiction
+                ok = False
+                break
+            used_doors.add(from_tag)
+            used_doors.add(to_tag)
+            connections.append({
+                "from": new_from,
+                "to": new_to
+            })
+        if ok and len(used_doors) == single_rooms * 6:
+            return Aedificium(rooms, starting_room, connections)
+
+    print(f"DEBUG: failed to deduplicate aedificium. returning original value: {aedificium}")
+    return aedificium
+
+
 # 使用例とテスト用の関数
 def create_simple_aedificium() -> Aedificium:
     """

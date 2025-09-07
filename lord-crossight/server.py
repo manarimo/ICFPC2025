@@ -10,7 +10,7 @@ import os
 from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from aedificium import Aedificium, create_random_aedificium, parse_plan, Action
+from aedificium import Aedificium, create_random_aedificium, parse_plan, Action, deduplicate_aedificium
 
 class IdStates:
     """各idの状態を管理するクラス"""
@@ -183,6 +183,8 @@ class ICFPMockServer(BaseHTTPRequestHandler):
             self._handle_explore(request_data)
         elif path == '/guess':
             self._handle_guess(request_data)
+        elif path == '/compare':
+            self._handle_compare(request_data)
         elif path == '/spoiler':
             self._handle_spoiler(request_data)
         else:
@@ -283,6 +285,18 @@ class ICFPMockServer(BaseHTTPRequestHandler):
         /guess エンドポイントの処理
         候補マップを提出し、指定されたidのAedificiumと比較する
         """
+        self._equivalence_test(request_data, guess=True)
+
+    def _handle_compare(self, request_data):
+        """
+        /compare エンドポイントの処理
+        候補マップを提出し、指定されたidのAedificiumと比較する
+
+        charcoal (bool): True if the comparison should be done with charcoal features, False otherwise. default: True
+        """
+        self._equivalence_test(request_data, guess=False)
+
+    def _equivalence_test(self, request_data, guess: bool):
         # リクエストの検証
         if 'id' not in request_data or 'map' not in request_data:
             self._send_error(400, "Missing required fields: id, map")
@@ -297,6 +311,7 @@ class ICFPMockServer(BaseHTTPRequestHandler):
             return
         
         map_data = request_data['map']
+        charcoal = guess or request_data.get('charcoal', True)
         
         # マップデータの基本的な構造チェック
         required_map_fields = ['rooms', 'startingRoom', 'connections']
@@ -310,10 +325,10 @@ class ICFPMockServer(BaseHTTPRequestHandler):
             submitted_aedificium = Aedificium.from_dict(map_data)
             
             # 現在のAedificiumと等価性を詳細にテスト
-            failure_reason = current_aedificium.equivalence_test(submitted_aedificium)
+            failure_reason = current_aedificium.equivalence_test(submitted_aedificium, full_contest_feature=charcoal)
             is_correct = failure_reason is None
             
-            print(f"User '{user_id}': Map guess submitted. Correct: {is_correct}")
+            print(f"User '{user_id}': Map {'guess' if guess else 'compare'} submitted. Correct: {is_correct}")
             if not is_correct:
                 print(f"Failure reason: {failure_reason}")
             print(f"Current Aedificium: {current_aedificium}")
@@ -327,11 +342,12 @@ class ICFPMockServer(BaseHTTPRequestHandler):
             if not is_correct:
                 response["reason"] = failure_reason
             
-            # 仕様に従い、guess後は問題を非選択状態にする
-            id_states[user_id].clear()
-            
-            # 状態更新を永続化
-            id_states.update_user_state(user_id)
+            if guess:
+                # 仕様に従い、guess後は問題を非選択状態にする
+                id_states[user_id].clear()
+                
+                # 状態更新を永続化
+                id_states.update_user_state(user_id)
             
             self._send_json_response(200, response)
             
@@ -344,6 +360,8 @@ class ICFPMockServer(BaseHTTPRequestHandler):
         """
         /spoiler エンドポイントの処理
         指定されたidの現在の正解（Aedificium）を返す
+
+        deduplicate (bool): True if the Aedificium should be deduplicated, False otherwise. default: False
         """
         # リクエストの検証
         if 'id' not in request_data:
@@ -357,6 +375,10 @@ class ICFPMockServer(BaseHTTPRequestHandler):
         if current_aedificium is None:
             self._send_error(400, "No problem selected. Please call /select first.")
             return
+        
+        deduplicate = request_data.get('deduplicate', False)
+        if deduplicate:
+            current_aedificium = deduplicate_aedificium(current_aedificium)
 
         response = {
             "map": current_aedificium.to_dict()
@@ -439,6 +461,7 @@ def run_server(port=8000):
     print(f"  POST http://localhost:{port}/select")
     print(f"  POST http://localhost:{port}/explore") 
     print(f"  POST http://localhost:{port}/guess")
+    print(f"  POST http://localhost:{port}/compare")
     print(f"  POST http://localhost:{port}/spoiler")
     if PERSISTENCE_DIR:
         print(f"State persistence enabled: {PERSISTENCE_DIR} (separate file per user)")

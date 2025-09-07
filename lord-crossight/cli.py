@@ -65,11 +65,26 @@ def cmd_guess(args):
         sys.exit(1)
 
 
+def cmd_compare(args):
+    """比較コマンド"""
+    try:
+        client = create_client(api_base=args.api_base)
+        # JSONファイルからマップデータを読み取る
+        with open(args.map_file, "r") as f:
+            map_data = json.load(f)
+        
+        response = client.compare(map_data, charcoal=not args.no_charcoal)
+        print(f"{json.dumps(response, indent=2)}")
+    except Exception as e:
+        print(f"比較エラー: {e}")
+        sys.exit(1)
+
+
 def cmd_spoiler(args):
     """正解を取得する"""
     try:
         client = create_client(api_base=args.api_base)
-        response = client.spoiler()
+        response = client.spoiler(deduplicate=args.deduplicate)
         print(f"{json.dumps(response, indent=2)}")
     except Exception as e:
         print(f"正解取得エラー: {e}")
@@ -110,8 +125,15 @@ def main():
     guess_parser.add_argument("map_file", help="マップデータのJSONファイル")
     guess_parser.set_defaults(func=cmd_guess)
 
+    # compare コマンド
+    compare_parser = subparsers.add_parser("compare", help="マップを提出して比較する")
+    compare_parser.add_argument("map_file", help="マップデータのJSONファイル")
+    compare_parser.add_argument("--no-charcoal", action="store_true", help="木炭を使用しない")
+    compare_parser.set_defaults(func=cmd_compare)
+
     # spoiler コマンド
     spoiler_parser = subparsers.add_parser("spoiler", help="正解を取得する")
+    spoiler_parser.add_argument("--deduplicate", action="store_true", help="重複を削除する")
     spoiler_parser.set_defaults(func=cmd_spoiler)
     
     args = parser.parse_args()
