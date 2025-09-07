@@ -9,6 +9,7 @@
 using namespace std;
 
 const int MAX_N = 30;
+const int MAX_PLAN_LENGTH = MAX_N * 18;
 
 class random {
     public:
@@ -129,12 +130,13 @@ void simulated_annealing::print() const {
     fprintf(stderr, "rejected: %lld\n", rejected);
 }
 
-int n = 30;
-int plan[MAX_N * 18];
-int result[MAX_N * 18 + 1];
-int vertex[MAX_N * 18 + 1];
-int tmp_vertex[MAX_N * 18 + 1];
-int best_vertex[MAX_N * 18 + 1];
+int n = 12;
+int plan_length = n * 2 * 6;
+int plan[MAX_PLAN_LENGTH];
+int result[MAX_PLAN_LENGTH + 1];
+int vertex[MAX_PLAN_LENGTH + 1];
+int tmp_vertex[MAX_PLAN_LENGTH + 1];
+int best_vertex[MAX_PLAN_LENGTH + 1];
 int graph[MAX_N][6];
 int cnt[MAX_N][6];
 int in_cnt[MAX_N][MAX_N];
@@ -157,7 +159,7 @@ int calc_score(vector<int>& bad) {
     }
     
     int score = 0;
-    for (int i = 0; i < n * 18; i++) {
+    for (int i = 0; i < plan_length; i++) {
         if (cnt[vertex[i]][plan[i]] == 0) {
             graph[vertex[i]][plan[i]] = vertex[i + 1];
             cnt[vertex[i]][plan[i]] = 1;
@@ -167,7 +169,7 @@ int calc_score(vector<int>& bad) {
             cnt[vertex[i]][plan[i]]--;
         }
     }
-    for (int i = 0; i < n * 18; i++) {
+    for (int i = 0; i < plan_length; i++) {
         if (graph[vertex[i]][plan[i]] != vertex[i + 1]) {
             if (i > 0) bad.push_back(i);
             bad.push_back(i + 1);
@@ -187,7 +189,7 @@ int calc_score(vector<int>& bad) {
         for (int j = 0; j < n; j++) sum_cnt[i] += max(in_cnt[i][j], out_cnt[i][j]);
         if (sum_cnt[i] > 6) score += (sum_cnt[i] - 6);
     }
-    for (int i = 0; i < n * 18; i++) {
+    for (int i = 0; i < plan_length; i++) {
         if (sum_cnt[vertex[i + 1]] > 6) {
             if (i > 0) bad.push_back(i);
             bad.push_back(i + 1);
@@ -198,14 +200,14 @@ int calc_score(vector<int>& bad) {
 
 int main() {
     scanf("%d", &n);
-    for (int i = 0; i < n * 18; i++) {
+    for (int i = 0; i < plan_length; i++) {
         scanf("%1d", &plan[i]);
     }
-    for (int i = 0; i <= n * 18; i++) scanf("%1d", &result[i]);
+    for (int i = 0; i <= plan_length; i++) scanf("%1d", &result[i]);
     
     int init_len = n;
     for (int i = 0; i < n; i++) candidate[i % 4].push_back(i);
-    for (int i = 1; i <= n * 18; i++) vertex[i] = best_vertex[i] = get_random(result[i]);
+    for (int i = 1; i <= plan_length; i++) vertex[i] = best_vertex[i] = get_random(result[i]);
     vector<int> current_bad, next_bad, best_bad;
     int current_score = calc_score(current_bad), best_score = current_score;
     simulated_annealing sa;
@@ -218,8 +220,8 @@ int main() {
             if (update == 0) {
                 current_score = best_score;
                 current_bad = best_bad;
-                for (int i = 0; i <= n * 18; i++) vertex[i] = best_vertex[i];
-                int pos = random::get(1, n * 18 - init_len);
+                for (int i = 0; i <= plan_length; i++) vertex[i] = best_vertex[i];
+                int pos = random::get(1, plan_length - init_len);
                 for (int i = pos; i <= pos + init_len; i++) vertex[i] = get_random(result[i]);
                 current_score = calc_score(current_bad);
             }
@@ -229,7 +231,7 @@ int main() {
                 if (random::get(100) < 30) {
                     pos = current_bad[random::get(current_bad.size())];
                 } else {
-                    pos = random::get(1, n * 18);
+                    pos = random::get(1, plan_length);
                 }
                 int now = vertex[pos], next = get_random(result[pos]);
                 if (now == next) continue;
@@ -242,10 +244,10 @@ int main() {
                     vertex[pos] = now;
                 }
             } else {
-                int pos = random::get(n * 18);
+                int pos = random::get(plan_length);
                 int from = vertex[pos], edge = plan[pos], to = vertex[pos + 1];
-                for (int i = 0; i <= n * 18; i++) tmp_vertex[i] = vertex[i];
-                for (int i = 0; i < n * 18; i++) {
+                for (int i = 0; i <= plan_length; i++) tmp_vertex[i] = vertex[i];
+                for (int i = 0; i < plan_length; i++) {
                     if (vertex[i] == from && plan[i] == edge && vertex[i + 1] % 4 == to % 4) vertex[i + 1] = to;
                 }
                 int next_score = calc_score(next_bad);
@@ -253,7 +255,7 @@ int main() {
                     current_score = next_score;
                     current_bad.swap(next_bad);
                 } else {
-                    for (int i = 0; i <= n * 18; i++) vertex[i] = tmp_vertex[i];
+                    for (int i = 0; i <= plan_length; i++) vertex[i] = tmp_vertex[i];
                 }
             }
             
@@ -261,7 +263,7 @@ int main() {
                 update = 0;
                 best_score = current_score;
                 best_bad = current_bad;
-                for (int i = 0; i <= n * 18; i++) best_vertex[i] = vertex[i];
+                for (int i = 0; i <= plan_length; i++) best_vertex[i] = vertex[i];
                 fprintf(stderr, "now : %d\n", best_score);
                 fflush(stderr);
             }
