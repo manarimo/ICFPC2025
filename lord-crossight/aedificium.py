@@ -1,7 +1,6 @@
 from typing import List, Dict, Any, Tuple, Set
 import json
-import random
-import re
+from random import Random
 import enum
 
 
@@ -198,11 +197,12 @@ class Aedificium:
         
         num_rooms = len(self.rooms)
         plan_length = num_rooms * (6 if full_contest_feature else 18)
+        random_state = Random()
         
         # 100ケースのランダムなplanでテスト
         for _ in range(100):
             # ランダムなplanを生成（0-5のドア番号）
-            plan = ''.join([str(random.randint(0, 5)) for _ in range(plan_length)])
+            plan = ''.join([str(random_state.randint(0, 5)) for _ in range(plan_length)])
             
             # 両方のAedificiumで同じplanを実行
             self_result = self._execute_plan(plan)
@@ -218,7 +218,7 @@ class Aedificium:
         # 100ケースのランダムなplanでテスト 木炭付き
         for _ in range(100):
             # ランダムなplanを生成（0-5のドア番号と0-3の木炭番号）
-            plan = ''.join([random.choice("012345") + "[" + random.choice("0123") + "]" for _ in range(plan_length)])
+            plan = ''.join([random_state.choice("012345") + "[" + random_state.choice("0123") + "]" for _ in range(plan_length)])
             
             # 両方のAedificiumで同じplanを実行
             self_result = self._execute_plan(plan)
@@ -394,7 +394,7 @@ def _all_doors_used(connections: List[Dict[str, Any]], num_rooms: int) -> bool:
     return True
 
 
-def create_random_aedificium(single_rooms: int, duplication_factor: int = 1) -> Aedificium:
+def create_random_aedificium(single_rooms: int, duplication_factor: int = 1, random_state: Random | None = None) -> Aedificium:
     """
     ランダムなAedificiumを生成する
     連結かつ全てのドアが使われているような部屋になるまで生成を繰り返す
@@ -406,14 +406,16 @@ def create_random_aedificium(single_rooms: int, duplication_factor: int = 1) -> 
     Returns:
         ランダムに生成されたAedificiumオブジェクト
     """
+    random_state = random_state or Random()
+
     if duplication_factor == 1:
-        return create_random_aedificium_single(single_rooms)
+        return _create_random_aedificium_single(single_rooms, random_state)
     assert duplication_factor > 1
 
     num_rooms = single_rooms * duplication_factor
     max_attempts = 10
     for _ in range(max_attempts):
-        single_aedificium = create_random_aedificium_single(single_rooms)
+        single_aedificium = _create_random_aedificium_single(single_rooms, random_state)
         rooms = single_aedificium.rooms * duplication_factor
         starting_room = single_aedificium.starting_room
         connection_dupes = []
@@ -426,9 +428,9 @@ def create_random_aedificium(single_rooms: int, duplication_factor: int = 1) -> 
                 })
             connection_dupes.append(renamed_connections)
         for duped_connections in zip(*connection_dupes):
-            for _ in range(random.randint(8, 12)):
-                swap_side = random.choice(["from", "to"])
-                i1, i2 = random.sample(range(duplication_factor), 2)
+            for _ in range(random_state.randint(8, 12)):
+                swap_side = random_state.choice(["from", "to"])
+                i1, i2 = random_state.sample(range(duplication_factor), 2)
                 duped_connections[i1][swap_side], duped_connections[i2][swap_side] = duped_connections[i2][swap_side], duped_connections[i1][swap_side]
         connections = sum(connection_dupes, [])
         candidate = Aedificium(rooms, starting_room, connections)
@@ -439,7 +441,7 @@ def create_random_aedificium(single_rooms: int, duplication_factor: int = 1) -> 
     return candidate
 
 
-def create_random_aedificium_single(num_rooms: int) -> Aedificium:
+def _create_random_aedificium_single(num_rooms: int, random_state: Random) -> Aedificium:
     """
     ランダムなAedificiumを生成する
     連結かつ全てのドアが使われているような部屋になるまで生成を繰り返す
@@ -450,16 +452,13 @@ def create_random_aedificium_single(num_rooms: int) -> Aedificium:
     Returns:
         ランダムに生成されたAedificiumオブジェクト
     """
-    # 各部屋のラベルをランダム生成（2ビット整数: 0-3）
-    # rooms = [random.randint(0, 3) for _ in range(num_rooms)]
-
     # 推測: i mod 4 をランダムシャッフルしているだけ
     rooms = [i % 4 for i in range(num_rooms)]
-    random.shuffle(rooms)
+    random_state.shuffle(rooms)
     
     # 開始部屋をランダム選択
     zero_rooms = [i for i in range(num_rooms) if rooms[i] == 0]
-    starting_room = random.choice(zero_rooms)
+    starting_room = random_state.choice(zero_rooms)
     
     # 条件を満たすまで生成を繰り返す
     max_attempts = 1000  # 無限ループを防ぐための上限
@@ -479,8 +478,8 @@ def create_random_aedificium_single(num_rooms: int) -> Aedificium:
             unused_doors = [door for door in all_doors if door not in used_doors]
             
             # 復元抽出で2つのドアを選択
-            door1 = random.choice(unused_doors)
-            door2 = random.choice(unused_doors)
+            door1 = random_state.choice(unused_doors)
+            door2 = random_state.choice(unused_doors)
             
             # 接続を追加
             room1, door_num1 = door1
