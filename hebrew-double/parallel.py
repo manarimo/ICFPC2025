@@ -72,7 +72,11 @@ def solve(args) -> Aedificium | None:
 {' '.join(explore.plans)}
 {' '.join(''.join(map(str, r)) for r in explore.result)}
 """
-    result = subprocess.check_output([binary_path, str(problem_config.num_rooms)], text=True, input=input_data)
+    try:
+        result = subprocess.check_output([binary_path, str(problem_config.num_rooms)], text=True, input=input_data)
+    except subprocess.CalledProcessError:
+        print(f"{process_id} killed")
+        return None
     
     output_lines = result.splitlines()
     solution_line = None
@@ -302,7 +306,7 @@ def try_solve(args):
             if res is not None:
                 estimated_aedificium = res
                 # 他のワーカーを停止して先に進む
-                pool.terminate()
+                subprocess.run(["pkill", "solve.exe"])
                 break
     if estimated_aedificium is None:
         return False
@@ -398,5 +402,4 @@ def main():
 if __name__ == "__main__":
     # multiprocessingのためのメイン実行ブロック
     multiprocessing.set_start_method('spawn', force=True)  # macOSでの互換性のため
-    random.seed(25252)
     main()

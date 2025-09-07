@@ -301,12 +301,13 @@ int main() {
                 best_bad = current_bad;
                 for (int p = 0; p < plans; p++)
                     for (int i = 0; i <= plan_length; i++) best_vertex[p][i] = vertex[p][i];
-                fprintf(stderr, "now : %d\n", best_score);
+                // fprintf(stderr, "now : %d\n", best_score);
                 fflush(stderr);
             }
         }
     }
     printf("end : %d\n", current_score);
+    fprintf(stderr, "best score: %d\n", best_score);
     sa.print();
     if (current_score > 0) return 0;
     

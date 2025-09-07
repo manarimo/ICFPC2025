@@ -313,8 +313,10 @@ class Aedificium:
             if not (ignore_layer_b_transition and current_layer != 0):
                 if from_door in dests and dests[from_door] != to_room:
                     print(f"[ERROR] Conflicting door: {from_door}, {to_room}, {dests[from_door]}")
-                    return None
-                dests[from_door] = to_room
+                    dests[from_door] = min(dests[from_door], to_room)
+                    #return None
+                else:
+                    dests[from_door] = to_room
             current_room, current_layer = next_room, next_layer
         return dests
     
@@ -364,8 +366,10 @@ class Aedificium:
             to_room = next_room + next_layer * n
             if from_door in dests and dests[from_door] != to_room:
                 print(f"[ERROR] Conflicting door: {from_door}, {to_room}, {dests[from_door]}")
-                return None
-            dests[from_door] = to_room
+                dests[from_door] = min(dests[from_door], to_room)
+                #return None
+            else:
+                dests[from_door] = to_room
             if from_door == (7, 2):
                 print("****")
             current_room, current_layer = next_room, next_layer
