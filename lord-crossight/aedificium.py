@@ -392,6 +392,29 @@ def deduplicate_aedificium(aedificium: Aedificium) -> Aedificium:
     return aedificium
 
 
+def problem_names():
+    return {
+        "probatio": (3, 1),
+        "primus": (6, 1),
+        "secundus": (12, 1),
+        "tertius": (18, 1),
+        "quartus": (24, 1),
+        "quintus": (30, 1),
+
+        "aleph": (6, 2),
+        "beth": (12, 2),
+        "gimel": (18, 2),
+        "daleth": (24, 2),
+        "he": (30, 2),
+
+        "vau": (6, 3),
+        "zain": (12, 3),
+        "hhet": (18, 3),
+        "teth": (24, 3),
+        "iod": (30, 3),
+    }
+
+
 # 使用例とテスト用の関数
 def create_simple_aedificium() -> Aedificium:
     """
