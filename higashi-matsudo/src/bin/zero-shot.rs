@@ -6,7 +6,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let backend_type = BackendType::Mock;
+    let backend_type = BackendType::Official;
     let client = ApiClient::new(backend_type)?;
 
     let problems = [

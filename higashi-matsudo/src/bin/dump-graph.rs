@@ -16,7 +16,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut rng = rand::rng();
-    let backend_type = BackendType::Mock;
+    let backend_type = BackendType::Official;
     let client = ApiClient::new(backend_type)?;
 
     loop {
@@ -304,6 +304,7 @@ fn construct_guess(nodes: &[Node], uf: &mut UnionFind, n: usize) -> GuessRequest
 
     let mut labels = vec![0; n];
     let mut edges = vec![];
+    let mut used_doors = BTreeSet::new();
     for i in 0..nodes.len() {
         let i = uf.find(i);
         let Some(&index) = map.get(&i) else {
@@ -311,6 +312,10 @@ fn construct_guess(nodes: &[Node], uf: &mut UnionFind, n: usize) -> GuessRequest
         };
         labels[index] = nodes[i].label;
         for door in 0..6 {
+            if used_doors.contains(&(i, door)) {
+                continue;
+            }
+
             let next = nodes[i].neighbors[door].expect("closed door found");
             let next = uf.find(next);
             let next_index = *map.get(&next).expect("unindexed node found");
@@ -324,6 +329,7 @@ fn construct_guess(nodes: &[Node], uf: &mut UnionFind, n: usize) -> GuessRequest
                     let reverse_node = uf.find(reverse_node);
                     (reverse_door, reverse_node)
                 })
+                .filter(|&(reverse_door, _)| !used_doors.contains(&(next, reverse_door)))
                 .find(|&(_, reverse_node)| reverse_node == i)
                 .map(|(reverse_door, _)| reverse_door)
             else {
@@ -343,6 +349,9 @@ fn construct_guess(nodes: &[Node], uf: &mut UnionFind, n: usize) -> GuessRequest
                 }
                 panic!("reverse door not found");
             };
+
+            used_doors.insert((i, door));
+            used_doors.insert((next, reverse_door));
 
             let v1 = (index, door);
             let v2 = (next_index, reverse_door);
