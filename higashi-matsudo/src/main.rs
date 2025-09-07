@@ -1,70 +1,146 @@
 use std::{
-    collections::BTreeSet,
-    fmt::Debug,
-    time::{Duration, Instant},
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    fs::File,
+    io::Write as _,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use higashi_matsudo::{ApiClient, BackendType, Connection, GuessRequestMap, Vertex};
+use higashi_matsudo::{
+    ApiClient, BackendType, Connection, Event, ExploreQuery, GuessRequestMap, Problem, Vertex,
+    union_find::UnionFind,
+};
 use rand::Rng;
 
-const SIX: usize = 6;
-
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-fn generate_random_plan(length: usize, rng: &mut impl Rng) -> Vec<usize> {
-    (0..length).map(|_| rng.random_range(0..SIX)).collect()
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut rng = rand::rng();
     let client = ApiClient::new(BackendType::Mock)?;
 
-    // 部屋の数
-    let n = client.select("quartus").await?;
+    let problem = Problem::Aleph;
+    client.select(problem).await?;
 
-    // 移動の履歴
-    let a = generate_random_plan(n * 18, &mut rng);
+    let n = problem.problem_size();
+    let mut uf = UnionFind::new(n * 1000);
+    let mut nodes = vec![];
 
-    // 移動した部屋の色
-    let b = client.explore(&a).await?;
+    let mut plan = vec![];
+    for i in 0.. {
+        trial(&mut rng, &mut nodes, n, &client, &mut plan, &mut uf).await?;
 
-    let mut color = vec![None; n];
-    let mut graph = vec![EdgeSet::new(); n];
-    color[0] = Some(b[0]);
-    if dfs(0, &mut graph, &mut color, &a, &b[1..], Instant::now()) {
-        println!("Found solution");
-        fill_graph(&mut graph);
-        validate_graph(&graph, &color, &a, &b);
+        let mut queue = VecDeque::new();
+        queue.push_back(uf.find(0));
 
-        for v in 0..n {
-            if color[v].is_none() {
-                color[v] = Some(0);
+        let mut found = None;
+        let mut prev = vec![None; nodes.len()];
+        while let Some(v) = queue.pop_front() {
+            let v = uf.find(v);
+            for door in 0..6 {
+                match nodes[v].neighbors[door] {
+                    Some(next) => {
+                        if prev[next].is_none() {
+                            prev[next] = Some((v, door));
+                            queue.push_back(next);
+                        }
+                    }
+                    None => {
+                        found = Some((v, door));
+                    }
+                }
             }
         }
 
-        let mut set = BTreeSet::new();
-        for from in 0..n {
-            for forward_door in 0..SIX {
-                let (to, backward_door) = graph[from].get(forward_door).expect("no edge");
-                let t = graph[to].get(backward_door).expect("no edge");
-                assert_eq!(t, (from, forward_door));
-
-                let from = (from, forward_door);
-                let to = (to, backward_door);
-                let (from, to) = (from.min(to), from.max(to));
-                set.insert((from, to));
+        eprintln!("trial {} {:?}", i, found);
+        match found {
+            Some((target, door)) => {
+                let mut cur = target;
+                plan = vec![];
+                while cur != uf.find(0)
+                    && let Some((prev, door)) = prev[cur]
+                {
+                    plan.push(ExploreQuery::open(door));
+                    cur = prev;
+                }
+                plan.reverse();
+                plan.push(ExploreQuery::open(door));
+            }
+            None => {
+                break;
             }
         }
+    }
 
-        let mut rooms = vec![];
-        for v in 0..n {
-            rooms.push(color[v].expect("no color"));
+    let mut queue = VecDeque::new();
+    queue.push_back(uf.find(0));
+    let mut vis = vec![false; nodes.len()];
+    vis[uf.find(0)] = true;
+    while let Some(v) = queue.pop_front() {
+        for door in 0..6 {
+            let next = nodes[v].neighbors[door].expect("closed door found");
+            let next = uf.find(next);
+            if !vis[next] {
+                vis[next] = true;
+                queue.push_back(next);
+            }
         }
+    }
 
-        let mut connections = vec![];
-        for (from, to) in set {
-            connections.push(Connection {
+    let mut map = BTreeMap::new();
+    for i in 0..nodes.len() {
+        let i = uf.find(i);
+        if vis[i] && !map.contains_key(&i) {
+            let index = map.len();
+            map.insert(i, index);
+        }
+    }
+    assert_eq!(map.len(), n);
+
+    let mut labels = vec![0; n];
+    let mut edges = vec![];
+    for i in 0..nodes.len() {
+        let i = uf.find(i);
+        let Some(&index) = map.get(&i) else {
+            continue;
+        };
+        labels[index] = nodes[i].label;
+        for door in 0..6 {
+            let next = nodes[i].neighbors[door].expect("closed door found");
+            let next = uf.find(next);
+            let next_index = *map.get(&next).expect("unindexed node found");
+
+            let reverse_door = nodes[next]
+                .neighbors
+                .iter()
+                .enumerate()
+                .map(|(reverse_door, &reverse_node)| {
+                    let reverse_node = reverse_node.expect("closed door found");
+                    let reverse_node = uf.find(reverse_node);
+                    (reverse_door, reverse_node)
+                })
+                .find(|&(_, reverse_node)| reverse_node == i)
+                .map(|(reverse_door, _)| reverse_door)
+                .expect("reverse door not found");
+
+            let v1 = (index, door);
+            let v2 = (next_index, reverse_door);
+
+            let (from, to) = (v1.min(v2), v1.max(v2));
+            edges.push((from, to));
+        }
+    }
+
+    edges.sort();
+    edges.dedup();
+
+    let starting_room = *map.get(&uf.find(0)).expect("starting room not found");
+
+    let guess = GuessRequestMap {
+        rooms: labels,
+        starting_room,
+        connections: edges
+            .into_iter()
+            .map(|(from, to)| Connection {
                 from: Vertex {
                     room: from.0,
                     door: from.1,
@@ -73,209 +149,201 @@ async fn main() -> Result<()> {
                     room: to.0,
                     door: to.1,
                 },
-            });
+            })
+            .collect(),
+    };
+
+    let correct = client.guess(&guess).await?;
+    if !correct {
+        eprintln!("incorrect guess");
+        return Err("incorrect guess".into());
+    }
+
+    let unix_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("failed to get unix time")
+        .as_secs();
+
+    // recursively make directory if not exists
+    let dir = format!("../graph-dump/{}", problem.to_str());
+    std::fs::create_dir_all(&dir).expect("failed to make directory");
+    let file_name = format!("{dir}/{unix_time}.json");
+    let mut file = File::create(file_name).expect("failed to create file");
+    file.write_all(
+        serde_json::to_string_pretty(&guess)
+            .expect("failed to serialize guess")
+            .as_bytes(),
+    )
+    .expect("failed to write file");
+
+    Ok(())
+}
+
+async fn trial(
+    rng: &mut impl Rng,
+    nodes: &mut Vec<Node>,
+    problem_size: usize,
+    client: &ApiClient,
+    plan: &mut Vec<ExploreQuery>,
+    uf: &mut UnionFind,
+) -> Result<()> {
+    while plan.len() < problem_size * 6 {
+        plan.push(ExploreQuery::open(rng.random_range(0..6)));
+    }
+
+    let events = client.explore(&plan).await?;
+    match events[0] {
+        Event::VisitRoom { label } => {
+            nodes.push(Node::new(label));
+        }
+        _ => unreachable!(),
+    }
+
+    let mut cur = 0;
+    for event in events.into_iter().skip(1) {
+        match event {
+            Event::VisitRoom { label } => {
+                nodes[cur].label = label;
+            }
+            Event::OpenDoor { door } => match nodes[cur].neighbors[door] {
+                Some(next) => {
+                    let next = uf.find(next);
+                    nodes[cur].neighbors[door] = Some(next);
+                    cur = next;
+                }
+                None => {
+                    let next = nodes.len();
+                    nodes.push(Node::new(10));
+                    nodes[cur].neighbors[door] = Some(next);
+                    cur = next;
+                }
+            },
+            Event::Overwrite { .. } => unreachable!(),
+        }
+    }
+
+    for pos in 0..(plan.len() / 2) {
+        // generate new plan
+        let last_node_id = reach(&nodes, &plan[0..pos]);
+        let mut new_plan = plan.clone();
+        new_plan.insert(
+            pos,
+            ExploreQuery::Charcoal {
+                label: find_different_label(nodes[last_node_id].label),
+            },
+        );
+
+        let events = client.explore(&new_plan).await?;
+
+        // find marked nodes
+        let mut cur = uf.find(0);
+        let mut mark = BTreeSet::new();
+        for event in events {
+            match event {
+                Event::VisitRoom { label } => {
+                    if label != nodes[cur].label {
+                        mark.insert(cur);
+                    }
+                }
+                Event::OpenDoor { door } => match nodes[cur].neighbors[door] {
+                    Some(next) => {
+                        let next = uf.find(next);
+                        cur = next;
+                    }
+                    None => unreachable!("closed door found when marking cur={cur} door={door}"),
+                },
+                Event::Overwrite { label } => {
+                    if label != nodes[cur].label {
+                        mark.insert(cur);
+                    }
+                }
+            }
         }
 
-        let map = GuessRequestMap {
-            rooms,
-            starting_room: 0,
-            connections,
-        };
+        assert!(mark.len() > 0, "{:?}", mark);
 
-        let response = client.guess(&map).await?;
-        println!("response: {:?}", response);
-    } else {
-        println!("No solution found");
-        return Err("No solution found".into());
+        let mut queue = VecDeque::new();
+        queue.push_back(mark);
+
+        // sweep
+        while let Some(mark) = queue.pop_front() {
+            let &representative_id = mark.iter().next().expect("no mark");
+
+            for node_id in mark {
+                uf.unite(node_id, representative_id);
+            }
+
+            for node in nodes.iter_mut() {
+                for door in 0..6 {
+                    if let Some(next) = node.neighbors[door] {
+                        node.neighbors[door] = Some(uf.find(next));
+                    }
+                }
+            }
+
+            let mut groups = vec![vec![]; nodes.len()];
+            for node_id in 0..nodes.len() {
+                groups[uf.find(node_id)].push(node_id);
+            }
+
+            for group in groups {
+                for door in 0..6 {
+                    let mut mark = BTreeSet::new();
+                    for &node_id in &group {
+                        if let Some(next) = nodes[node_id].neighbors[door] {
+                            mark.insert(next);
+                        }
+                    }
+
+                    if let Some(&representative_id) = mark.iter().next() {
+                        for &node_id in mark.iter() {
+                            uf.unite(node_id, representative_id);
+                        }
+
+                        for &node_id in &group {
+                            nodes[node_id].neighbors[door] = Some(representative_id);
+                        }
+                    }
+
+                    if mark.len() > 1 {
+                        queue.push_back(mark);
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
 }
 
-fn dfs(
-    from: usize,
-    graph: &mut [EdgeSet<(usize, usize)>],
-    color: &mut Vec<Option<usize>>,
-    door_history: &[usize],
-    color_history: &[usize],
-    start: Instant,
-) -> bool {
-    assert!(color[from].is_some());
-    assert_eq!(door_history.len(), color_history.len());
-    let now = Instant::now();
-    if now - start > Duration::from_secs(30) {
-        return false;
-    }
-    if door_history.is_empty() {
-        return true;
-    }
-
-    let n = graph.len();
-    let forward_door = door_history[0];
-    let next_color = color_history[0];
-    for to in 0..n {
-        if let Some(a) = graph[from].get(forward_door)
-            && a.0 != to
-        {
-            continue;
-        }
-
-        let mut fill_color = false;
-        match color[to] {
-            Some(current_color) => {
-                if current_color != next_color {
-                    continue;
-                }
-            }
-            None => {
-                color[to] = Some(next_color);
-                fill_color = true;
-            }
-        }
-        assert_eq!(color[to], Some(next_color));
-
-        for backward_door in 0..SIX {
-            if let Some(a) = graph[from].get(forward_door)
-                && a != (to, backward_door)
-            {
-                continue;
-            }
-            if let Some(a) = graph[to].get(backward_door)
-                && a != (from, forward_door)
-            {
-                continue;
-            }
-
-            if to == from && backward_door == forward_door {
-                continue;
-            }
-
-            let mut fill_graph = false;
-            match graph[from].get(forward_door) {
-                None => {
-                    // 次数制約は新規にエッジを張る場合のみ確認する
-                    if to == from {
-                        // 自己ループは同一ノードで2本のドアを消費する
-                        if graph[from].len() + 2 > SIX {
-                            continue;
-                        }
-                    } else {
-                        if graph[from].len() + 1 > SIX || graph[to].len() + 1 > SIX {
-                            continue;
-                        }
-                    }
-                    graph[from].set(forward_door, (to, backward_door));
-                    graph[to].set(backward_door, (from, forward_door));
-                    fill_graph = true;
-                }
-                _ => {}
-            }
-
-            assert!(graph[to].len() <= 6);
-            assert!(graph[from].len() <= 6);
-
-            if dfs(
-                to,
-                graph,
-                color,
-                &door_history[1..],
-                &color_history[1..],
-                start,
-            ) {
-                return true;
-            }
-
-            if fill_graph {
-                graph[to].remove(backward_door);
-                graph[from].remove(forward_door);
-            }
-        }
-
-        if fill_color {
-            color[to] = None;
-        }
-    }
-
-    false
+#[derive(Debug, Clone, Copy)]
+struct Node {
+    label: u8,
+    neighbors: [Option<usize>; 6],
 }
 
-#[derive(Clone)]
-struct EdgeSet<T> {
-    size: usize,
-    edges: [Option<T>; SIX],
-}
-
-impl<T: Copy + Debug> EdgeSet<T> {
-    fn new() -> Self {
+impl Node {
+    fn new(label: u8) -> Self {
         Self {
-            size: 0,
-            edges: [None; SIX],
+            label,
+            neighbors: [None; 6],
         }
-    }
-
-    fn len(&self) -> usize {
-        self.size
-    }
-
-    fn set(&mut self, door: usize, target: T) {
-        assert!(self.edges[door].is_none());
-        self.edges[door] = Some(target);
-        self.size += 1;
-    }
-    fn remove(&mut self, door: usize) {
-        assert!(self.edges[door].is_some());
-        self.edges[door] = None;
-        self.size -= 1;
-    }
-
-    fn get(&self, door: usize) -> Option<T> {
-        self.edges[door]
     }
 }
 
-fn fill_graph(graph: &mut [EdgeSet<(usize, usize)>]) {
-    let n = graph.len();
-    let mut candidates = vec![];
-    for v in 0..n {
-        for door in 0..SIX {
-            if graph[v].get(door).is_some() {
-                continue;
+fn reach(nodes: &[Node], plan: &[ExploreQuery]) -> usize {
+    let mut cur = 0;
+    for query in plan {
+        match query {
+            ExploreQuery::Open { door } => {
+                cur = nodes[cur].neighbors[*door as usize].expect("door is not open");
             }
-
-            candidates.push((v, door));
+            ExploreQuery::Charcoal { .. } => unreachable!(),
         }
     }
-
-    assert_eq!(candidates.len() % 2, 0);
-
-    while let Some((v1, door1)) = candidates.pop()
-        && let Some((v2, door2)) = candidates.pop()
-    {
-        graph[v1].set(door1, (v2, door2));
-        graph[v2].set(door2, (v1, door1));
-    }
+    cur
 }
 
-fn validate_graph(
-    graph: &[EdgeSet<(usize, usize)>],
-    colors: &[Option<usize>],
-    plan: &[usize],
-    color_history: &[usize],
-) {
-    let mut from = 0;
-    assert_eq!(colors[from], Some(color_history[0]));
-
-    let t = plan.len();
-    assert_eq!(t + 1, color_history.len());
-    for i in 0..t {
-        let door = plan[i];
-        let next_color = color_history[i + 1];
-
-        let (to, backward_door) = graph[from].get(door).expect("no edge");
-
-        assert_eq!(colors[to], Some(next_color), "{:?}", color_history);
-        let backward = graph[to].get(backward_door).expect("no edge");
-        assert_eq!(backward, (from, door));
-        from = to;
-    }
+fn find_different_label(label: u8) -> u8 {
+    (0..).find(|&x| x != label).expect("unreachable")
 }
