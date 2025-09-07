@@ -314,7 +314,7 @@ fn construct_guess(nodes: &[Node], uf: &mut UnionFind, n: usize) -> GuessRequest
             let next = uf.find(next);
             let next_index = *map.get(&next).expect("unindexed node found");
 
-            let reverse_door = nodes[next]
+            let Some(reverse_door) = nodes[next]
                 .neighbors
                 .iter()
                 .enumerate()
@@ -325,7 +325,23 @@ fn construct_guess(nodes: &[Node], uf: &mut UnionFind, n: usize) -> GuessRequest
                 })
                 .find(|&(_, reverse_node)| reverse_node == i)
                 .map(|(reverse_door, _)| reverse_door)
-                .expect("reverse door not found");
+            else {
+                eprintln!("reverse door not found, i={i}, next={next}");
+                eprintln!("uf.find(i)={}", uf.find(i));
+                eprintln!("uf.find(next)={}", uf.find(next));
+                eprintln!("nodes[i]={:?}", nodes[i]);
+                eprintln!("nodes[next]={:?}", nodes[next]);
+
+                for (door, next) in nodes[i].neighbors.iter().enumerate() {
+                    let next = next.expect("closed door found");
+                    eprintln!("nodes[i][{door}]={next} {}", uf.find(next));
+                }
+                for (door, next) in nodes[next].neighbors.iter().enumerate() {
+                    let next = next.expect("closed door found");
+                    eprintln!("nodes[next][{door}]={next} {}", uf.find(next));
+                }
+                panic!("reverse door not found");
+            };
 
             let v1 = (index, door);
             let v2 = (next_index, reverse_door);
