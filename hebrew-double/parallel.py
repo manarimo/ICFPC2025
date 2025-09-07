@@ -177,15 +177,17 @@ def try_solve(args):
         )
         process_args.append(proc_arg)
     
-    # 並列実行
+    # 並列実行: 最初に成功した結果を採用して即時継続
+    estimated_aedificium = None
     with multiprocessing.Pool(processes=num_processes) as pool:
-        results = pool.map(solve, process_args)
-
-    candidates = [candidate for candidate in results if candidate is not None]    
-    if not candidates:
+        for res in pool.imap_unordered(solve, process_args):
+            if res is not None:
+                estimated_aedificium = res
+                # 他のワーカーを停止して先に進む
+                pool.terminate()
+                break
+    if estimated_aedificium is None:
         return False
-
-    estimated_aedificium = candidates[0]
     print('est', estimated_aedificium.to_json())
     if False:
         spoiler = client.spoiler()
@@ -230,8 +232,12 @@ def try_solve(args):
                     print(f"Error: conflicting dests: door={key}, dest1={final_dests[key]}, dest2={val}")
                     return
                 final_dests[key] = val
-        connections = build_connections(final_dests, problem_config.num_rooms * factor)
-        estimated_aedificium = Aedificium(estimated_aedificium.rooms * 2, estimated_aedificium.starting_room, connections)
+        try:
+            connections = build_connections(final_dests, problem_config.num_rooms * factor)
+            estimated_aedificium = Aedificium(estimated_aedificium.rooms * 2, estimated_aedificium.starting_room, connections)
+        except:
+            print("ERROR: failed to build connections")
+            return
         print("guess", estimated_aedificium.to_json())
 
     print("\n=== 復元結果 ===")
