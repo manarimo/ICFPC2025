@@ -18,165 +18,57 @@ async fn main() -> Result<()> {
     let mut rng = rand::rng();
     let client = ApiClient::new(BackendType::Mock)?;
 
-    let problem = Problem::Aleph;
-    client.select(problem).await?;
+    loop {
+        let problems = [
+            Problem::Probatio,
+            Problem::Primus,
+            Problem::Secundus,
+            Problem::Tertius,
+            Problem::Quartus,
+            Problem::Quintus,
+            Problem::Aleph,
+            Problem::Beth,
+            Problem::Gimel,
+            Problem::Daleth,
+            Problem::He,
+            Problem::Vau,
+            Problem::Zain,
+            Problem::Hhet,
+            Problem::Teth,
+            Problem::Iod,
+        ];
 
-    let n = problem.problem_size();
-    let mut uf = UnionFind::new(n * 1000);
-    let mut nodes = vec![];
+        for problem in problems {
+            eprintln!("problem={}", problem.to_str());
+            client.select(problem).await?;
 
-    let mut plan = vec![];
-    for i in 0.. {
-        trial(&mut rng, &mut nodes, n, &client, &mut plan, &mut uf).await?;
+            let n = problem.problem_size();
+            let mut uf = UnionFind::new(n * 1000);
+            let mut nodes = vec![];
 
-        let mut queue = VecDeque::new();
-        queue.push_back(uf.find(0));
-
-        let mut found = None;
-        let mut prev = vec![None; nodes.len()];
-        while let Some(v) = queue.pop_front() {
-            let v = uf.find(v);
-            for door in 0..6 {
-                match nodes[v].neighbors[door] {
-                    Some(next) => {
-                        if prev[next].is_none() {
-                            prev[next] = Some((v, door));
-                            queue.push_back(next);
-                        }
+            let mut plan = vec![];
+            for i in 0.. {
+                trial(&mut rng, &mut nodes, n, &client, plan, &mut uf).await?;
+                match construct_door_open_plan(&nodes, &mut uf) {
+                    Some(new_plan) => {
+                        eprintln!("new plan found, i={i}");
+                        plan = new_plan;
                     }
-                    None => {
-                        found = Some((v, door));
-                    }
+                    None => break,
                 }
             }
-        }
 
-        eprintln!("trial {} {:?}", i, found);
-        match found {
-            Some((target, door)) => {
-                let mut cur = target;
-                plan = vec![];
-                while cur != uf.find(0)
-                    && let Some((prev, door)) = prev[cur]
-                {
-                    plan.push(ExploreQuery::open(door));
-                    cur = prev;
-                }
-                plan.reverse();
-                plan.push(ExploreQuery::open(door));
+            let guess = construct_guess(&nodes, &mut uf, n);
+
+            let correct = client.guess(&guess).await?;
+            if !correct {
+                eprintln!("incorrect guess");
+                return Err("incorrect guess".into());
             }
-            None => {
-                break;
-            }
+
+            save_guess(&guess, problem)?;
         }
     }
-
-    let mut queue = VecDeque::new();
-    queue.push_back(uf.find(0));
-    let mut vis = vec![false; nodes.len()];
-    vis[uf.find(0)] = true;
-    while let Some(v) = queue.pop_front() {
-        for door in 0..6 {
-            let next = nodes[v].neighbors[door].expect("closed door found");
-            let next = uf.find(next);
-            if !vis[next] {
-                vis[next] = true;
-                queue.push_back(next);
-            }
-        }
-    }
-
-    let mut map = BTreeMap::new();
-    for i in 0..nodes.len() {
-        let i = uf.find(i);
-        if vis[i] && !map.contains_key(&i) {
-            let index = map.len();
-            map.insert(i, index);
-        }
-    }
-    assert_eq!(map.len(), n);
-
-    let mut labels = vec![0; n];
-    let mut edges = vec![];
-    for i in 0..nodes.len() {
-        let i = uf.find(i);
-        let Some(&index) = map.get(&i) else {
-            continue;
-        };
-        labels[index] = nodes[i].label;
-        for door in 0..6 {
-            let next = nodes[i].neighbors[door].expect("closed door found");
-            let next = uf.find(next);
-            let next_index = *map.get(&next).expect("unindexed node found");
-
-            let reverse_door = nodes[next]
-                .neighbors
-                .iter()
-                .enumerate()
-                .map(|(reverse_door, &reverse_node)| {
-                    let reverse_node = reverse_node.expect("closed door found");
-                    let reverse_node = uf.find(reverse_node);
-                    (reverse_door, reverse_node)
-                })
-                .find(|&(_, reverse_node)| reverse_node == i)
-                .map(|(reverse_door, _)| reverse_door)
-                .expect("reverse door not found");
-
-            let v1 = (index, door);
-            let v2 = (next_index, reverse_door);
-
-            let (from, to) = (v1.min(v2), v1.max(v2));
-            edges.push((from, to));
-        }
-    }
-
-    edges.sort();
-    edges.dedup();
-
-    let starting_room = *map.get(&uf.find(0)).expect("starting room not found");
-
-    let guess = GuessRequestMap {
-        rooms: labels,
-        starting_room,
-        connections: edges
-            .into_iter()
-            .map(|(from, to)| Connection {
-                from: Vertex {
-                    room: from.0,
-                    door: from.1,
-                },
-                to: Vertex {
-                    room: to.0,
-                    door: to.1,
-                },
-            })
-            .collect(),
-    };
-
-    let correct = client.guess(&guess).await?;
-    if !correct {
-        eprintln!("incorrect guess");
-        return Err("incorrect guess".into());
-    }
-
-    let unix_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("failed to get unix time")
-        .as_secs();
-
-    // recursively make directory if not exists
-    let dir = format!("../graph-dump/{}", problem.to_str());
-    std::fs::create_dir_all(&dir).expect("failed to make directory");
-    let file_name = format!("{dir}/{unix_time}.json");
-    let mut file = File::create(file_name).expect("failed to create file");
-    file.write_all(
-        serde_json::to_string_pretty(&guess)
-            .expect("failed to serialize guess")
-            .as_bytes(),
-    )
-    .expect("failed to write file");
-
-    Ok(())
 }
 
 async fn trial(
@@ -184,7 +76,7 @@ async fn trial(
     nodes: &mut Vec<Node>,
     problem_size: usize,
     client: &ApiClient,
-    plan: &mut Vec<ExploreQuery>,
+    mut plan: Vec<ExploreQuery>,
     uf: &mut UnionFind,
 ) -> Result<()> {
     while plan.len() < problem_size * 6 {
@@ -362,4 +254,146 @@ fn reach(nodes: &[Node], plan: &[ExploreQuery], uf: &mut UnionFind) -> usize {
 
 fn find_different_label(label: u8) -> u8 {
     (0..).find(|&x| x != label).expect("unreachable")
+}
+
+fn save_guess(guess: &GuessRequestMap, problem: Problem) -> Result<()> {
+    let unix_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("failed to get unix time")
+        .as_secs();
+
+    let dir = format!("../graph-dump/{}", problem.to_str());
+    std::fs::create_dir_all(&dir)?;
+    let file_name = format!("{dir}/{unix_time}.json");
+    let mut file = File::create(file_name)?;
+    file.write_all(
+        serde_json::to_string_pretty(&guess)
+            .expect("failed to serialize guess")
+            .as_bytes(),
+    )?;
+
+    Ok(())
+}
+
+fn construct_guess(nodes: &[Node], uf: &mut UnionFind, n: usize) -> GuessRequestMap {
+    let mut queue = VecDeque::new();
+    queue.push_back(uf.find(0));
+    let mut vis = vec![false; nodes.len()];
+    vis[uf.find(0)] = true;
+    while let Some(v) = queue.pop_front() {
+        for door in 0..6 {
+            let next = nodes[v].neighbors[door].expect("closed door found");
+            let next = uf.find(next);
+            if !vis[next] {
+                vis[next] = true;
+                queue.push_back(next);
+            }
+        }
+    }
+
+    let mut map = BTreeMap::new();
+    for i in 0..nodes.len() {
+        let i = uf.find(i);
+        if vis[i] && !map.contains_key(&i) {
+            let index = map.len();
+            map.insert(i, index);
+        }
+    }
+    assert_eq!(map.len(), n);
+
+    let mut labels = vec![0; n];
+    let mut edges = vec![];
+    for i in 0..nodes.len() {
+        let i = uf.find(i);
+        let Some(&index) = map.get(&i) else {
+            continue;
+        };
+        labels[index] = nodes[i].label;
+        for door in 0..6 {
+            let next = nodes[i].neighbors[door].expect("closed door found");
+            let next = uf.find(next);
+            let next_index = *map.get(&next).expect("unindexed node found");
+
+            let reverse_door = nodes[next]
+                .neighbors
+                .iter()
+                .enumerate()
+                .map(|(reverse_door, &reverse_node)| {
+                    let reverse_node = reverse_node.expect("closed door found");
+                    let reverse_node = uf.find(reverse_node);
+                    (reverse_door, reverse_node)
+                })
+                .find(|&(_, reverse_node)| reverse_node == i)
+                .map(|(reverse_door, _)| reverse_door)
+                .expect("reverse door not found");
+
+            let v1 = (index, door);
+            let v2 = (next_index, reverse_door);
+
+            let (from, to) = (v1.min(v2), v1.max(v2));
+            edges.push((from, to));
+        }
+    }
+
+    edges.sort();
+    edges.dedup();
+
+    let starting_room = *map.get(&uf.find(0)).expect("starting room not found");
+
+    GuessRequestMap {
+        rooms: labels,
+        starting_room,
+        connections: edges
+            .into_iter()
+            .map(|(from, to)| Connection {
+                from: Vertex {
+                    room: from.0,
+                    door: from.1,
+                },
+                to: Vertex {
+                    room: to.0,
+                    door: to.1,
+                },
+            })
+            .collect(),
+    }
+}
+
+fn construct_door_open_plan(nodes: &[Node], uf: &mut UnionFind) -> Option<Vec<ExploreQuery>> {
+    let mut queue = VecDeque::new();
+    queue.push_back(uf.find(0));
+
+    let mut found = None;
+    let mut prev = vec![None; nodes.len()];
+    while let Some(v) = queue.pop_front() {
+        let v = uf.find(v);
+        for door in 0..6 {
+            match nodes[v].neighbors[door] {
+                Some(next) => {
+                    if prev[next].is_none() {
+                        prev[next] = Some((v, door));
+                        queue.push_back(next);
+                    }
+                }
+                None => {
+                    found = Some((v, door));
+                }
+            }
+        }
+    }
+
+    let (target, door) = found?;
+
+    let mut cur = target;
+    let mut plan = vec![];
+    while cur != uf.find(0)
+        && let Some((prev, door)) = prev[cur]
+    {
+        plan.push(ExploreQuery::open(door));
+        cur = prev;
+    }
+    plan.reverse();
+    plan.push(ExploreQuery::open(door));
+
+    Some(plan)
 }
