@@ -183,14 +183,18 @@ impl ApiClient {
             BackendType::Mock => MOCK_ID,
             BackendType::Official => OFFICIAL_ID,
         };
-        self.client
+        let response = self
+            .client
             .post(url)
             .json(&json!({
                 "id": id,
                 "problemName": problem.to_str(),
             }))
             .send()
+            .await?
+            .json::<Value>()
             .await?;
+        eprintln!("response={:?}", response);
         Ok(())
     }
 
