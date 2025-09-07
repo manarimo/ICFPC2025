@@ -194,20 +194,24 @@ impl ApiClient {
         Ok(())
     }
 
-    pub async fn explore(&self, plan: &[ExploreQuery]) -> Result<Vec<Event>> {
+    pub async fn explore(&self, plans: &[Vec<ExploreQuery>]) -> Result<Vec<Vec<Event>>> {
         let url = format!("{BASE_URL}/explore");
-        let query = plan
-            .iter()
-            .map(|&x| x.to_string())
-            .collect::<Vec<String>>()
-            .join("");
+        let mut queries = vec![];
+        for plan in plans {
+            let query = plan
+                .iter()
+                .map(|&x| x.to_string())
+                .collect::<Vec<String>>()
+                .join("");
+            queries.push(query);
+        }
         let id = match self.backend_type {
             BackendType::Mock => MOCK_ID,
             BackendType::Official => OFFICIAL_ID,
         };
         let request = json!({
             "id": id,
-            "plans": [query],
+            "plans": queries,
         });
         let response = self.client.post(url).json(&request).send().await?;
 
@@ -220,24 +224,26 @@ impl ApiClient {
         let response = response.json::<Value>().await?;
         let response = serde_json::from_value::<Response>(response)?;
 
-        let mut events = vec![];
-        events.push(Event::VisitRoom {
-            label: response.results[0][0],
-        });
+        let mut batch = vec![];
+        for (results, plan) in response.results.iter().zip(plans) {
+            let mut events = vec![];
+            events.push(Event::VisitRoom { label: results[0] });
 
-        for (&result, &plan) in response.results[0].iter().skip(1).zip(plan.iter()) {
-            match plan {
-                ExploreQuery::Open { door } => {
-                    events.push(Event::OpenDoor { door });
-                    events.push(Event::VisitRoom { label: result });
-                }
-                ExploreQuery::Charcoal { label } => {
-                    events.push(Event::Overwrite { label });
+            for (&result, &plan) in results.iter().skip(1).zip(plan.iter()) {
+                match plan {
+                    ExploreQuery::Open { door } => {
+                        events.push(Event::OpenDoor { door });
+                        events.push(Event::VisitRoom { label: result });
+                    }
+                    ExploreQuery::Charcoal { label } => {
+                        events.push(Event::Overwrite { label });
+                    }
                 }
             }
+            batch.push(events);
         }
 
-        Ok(events)
+        Ok(batch)
     }
 
     pub async fn guess(&self, map: &GuessRequestMap) -> Result<bool> {

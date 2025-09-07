@@ -84,7 +84,8 @@ async fn trial(
         plan.push(ExploreQuery::open(rng.random_range(0..6)));
     }
 
-    let events = client.explore(&plan).await?;
+    let batch = client.explore(&[plan.clone()]).await?;
+    let events = &batch[0];
     match events[0] {
         Event::VisitRoom { label } => {
             nodes.push(Node::new(label));
@@ -93,7 +94,7 @@ async fn trial(
     }
 
     let mut cur = uf.find(0);
-    for event in events.into_iter().skip(1) {
+    for &event in events.iter().skip(1) {
         match event {
             Event::VisitRoom { label } => {
                 nodes[cur].label = label;
@@ -115,6 +116,8 @@ async fn trial(
         }
     }
 
+    let mut new_plans = vec![];
+
     for pos in 0..(plan.len() / 2) {
         // generate new plan
         let last_node_id = reach(&nodes, &plan[0..pos], uf);
@@ -126,8 +129,12 @@ async fn trial(
             },
         );
 
-        let events = client.explore(&new_plan).await?;
+        new_plans.push(new_plan);
+    }
 
+    let batch = client.explore(&new_plans).await?;
+
+    for events in batch {
         // find marked nodes
         let mut cur = uf.find(0);
         let mut mark = BTreeSet::new();
@@ -144,8 +151,8 @@ async fn trial(
                         cur = next;
                     }
                     None => unreachable!(
-                        "closed door found when marking cur={cur} door={door} plan={:?} new_plan={:?} events={:?} i={i}",
-                        plan, new_plan, events,
+                        "closed door found when marking cur={cur} door={door} plan={:?} events={:?} i={i}",
+                        plan, events,
                     ),
                 },
                 Event::Overwrite { label } => {
