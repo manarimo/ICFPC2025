@@ -153,12 +153,42 @@ class APIClient:
         }
         return self._make_json_post_request("/guess", request_data)
     
-    def spoiler(self) -> Dict[str, Any]:
+    def compare(self, map_data: Dict[str, Any], charcoal: bool = True) -> Dict[str, Any]:
+        """
+        候補となるマップを提出する
+        
+        Args:
+            map_data: マップの説明を含む辞書
+                     {
+                       "rooms": [int],
+                       "startingRoom": int,
+                       "connections": [
+                         {
+                           "from": {"room": int, "door": int},
+                           "to": {"room": int, "door": int}
+                         }
+                       ]
+                     }
+            
+            charcoal: テストケースで木炭を使用するかどうか（default: True）
+                     
+        Returns:
+            dict: {"correct": boolean} レスポンス
+        """
+        request_data = {
+            "id": self.api_id,
+            "map": map_data,
+            "charcoal": charcoal,
+        }
+        return self._make_json_post_request("/compare", request_data)
+    
+    def spoiler(self, deduplicate: bool = False) -> Dict[str, Any]:
         """
         正解を取得する
         """
         request_data = {
             "id": self.api_id,
+            "deduplicate": deduplicate,
         }
         return self._make_json_post_request("/spoiler", request_data)
 
