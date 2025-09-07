@@ -8,9 +8,8 @@ from typing import List
 from pathlib import Path
 import subprocess
 
-from aedificium import Aedificium, build_connections
+from aedificium import Aedificium, build_connections, parse_plan
 import api
-
 
 @dataclass
 class ProblemConfig:
@@ -131,13 +130,130 @@ def _create_client_for_target(target_server: str):
         api_id="amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ",
     )
 
+def _solve_double(client: api.APIClient, estimated_aedificium: Aedificium, num_rooms: int, deep_expeditions: int) -> Aedificium | None:
+    # ランダムウォークして情報をあつめる
+    # 「表」のノードを一貫した形で識別するため、毎回共通の初期動作で縮小グラフの頂点を被覆する
+    covering_path = estimated_aedificium.build_covering_path(list(range(num_rooms)))
+    print('cover', covering_path)
+    max_len = num_rooms * 2 * 6
+
+    # 被覆 + 情報集めのランダムウォークで探検計画を作る
+    plans = []
+    for i in range(deep_expeditions):
+        raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
+        enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + raw_plan)
+        plans.append(enhanced_plan)
+
+    # 実行
+    res = client.explore(plans)
+    print(res)
+
+    # 実行結果から頂点の接続関係を復元する
+    dests_list = []
+    for (plan, results) in zip(plans, res['results']):
+        dests = estimated_aedificium.build_dest_maps_double(plan, results)
+        if dests is not None:
+            dests_list.append(dests)
+    final_dests = {}
+    for dests in dests_list:
+        for (key, val) in dests.items():
+            if key in final_dests and final_dests[key] != val:
+                print(f"Error: conflicting dests: door={key}, dest1={final_dests[key]}, dest2={val}")
+                return
+            final_dests[key] = val
+    try:
+        connections = build_connections(final_dests, num_rooms * 2)
+        return Aedificium(estimated_aedificium.rooms * 2, estimated_aedificium.starting_room, connections)
+    except Exception as e:
+        import traceback
+        traceback.print_exception(e)
+        print("ERROR: failed to build connections")
+        return
+
+def _solve_triple(client: api.APIClient, estimated_aedificium: Aedificium, num_rooms: int, deep_expeditions: int) -> Aedificium | None:
+    # ランダムウォークして情報をあつめる
+    # 「表」のノードを一貫した形で識別するため、毎回共通の初期動作で縮小グラフの頂点を被覆する
+    covering_path = estimated_aedificium.build_covering_path(list(range(num_rooms)))
+    print('cover', covering_path)
+    max_len = num_rooms * 3 * 6
+
+    # 被覆 + 情報集めのランダムウォークで探検計画を作る
+    raw_plans = []
+    for i in range(deep_expeditions):
+        raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
+        raw_plans.append(raw_plan)
+    
+    first_plans = []
+    for plan in raw_plans:
+        enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + plan)
+        first_plans.append(enhanced_plan)
+    print('first', first_plans)
+
+    # A面決め探索の実行
+    res = client.explore(first_plans)
+    print(res)
+
+    # それぞれの探索について、各ノードのA面でない面に最初に入ったポイントを列挙する
+    best_prefix = None
+    for (plan_str, result) in zip(first_plans, res['results']):
+        layer_b_pos = estimated_aedificium.build_layer_b_pos(plan_str, result)
+        if len(layer_b_pos) == num_rooms:
+            plan = estimated_aedificium.inject_charcoal_to_walk_triple(plan_str, layer_b_pos)
+            last_charcoal = plan.rindex(']')
+            prefix = plan[:last_charcoal+1]
+            if best_prefix is None or len(prefix) < len(best_prefix):
+                best_prefix = prefix
+
+    if best_prefix is None:
+        print("ERROR: cannot determine layer B")
+        return None
+
+    prefix_turns = len(parse_plan(best_prefix))
+    second_plans = []
+    for i in range(deep_expeditions):
+        raw_plan = ''.join(random.choices('012345', k=max_len - prefix_turns))
+        enhanced_plan = best_prefix + raw_plan
+        second_plans.append(enhanced_plan)
+    print('second', second_plans)
+    
+    # B, C面決め探索実行
+    res = client.explore(second_plans)
+    print(res)
+
+    # 実行結果から頂点の接続関係を復元する
+    dests_list = []
+    for (plan, results) in zip(second_plans, res['results']):
+        dests = estimated_aedificium.build_dest_maps_triple(plan, results)
+        print(dests)
+        if dests is not None:
+            dests_list.append(dests)
+    final_dests = {}
+    for dests in dests_list:
+        for (key, val) in dests.items():
+            if key in final_dests and final_dests[key] != val:
+                print(f"Error: conflicting dests: door={key}, dest1={final_dests[key]}, dest2={val}")
+                return
+            final_dests[key] = val
+    print(final_dests)
+    try:
+        connections = build_connections(final_dests, num_rooms * 3)
+        if connections is None:
+            print("ERROR: connections is None")
+            return None
+        return Aedificium(estimated_aedificium.rooms * 3, estimated_aedificium.starting_room, connections)
+    except Exception as e:
+        import traceback
+        traceback.print_exception(e)
+        print("ERROR: failed to build connections")
 
 def try_solve(args):
     """メイン関数"""
     client = _create_client_for_target(args.target_server)
 
     # 2倍問題・3倍問題の場合はnum_roomsを縮小マップのサイズで指定する
-    num_rooms = public_names[args.problem_name][0]
+    num_rooms = None
+    if args.problem_name in public_names:
+        num_rooms = public_names[args.problem_name][0]
     if args.num_rooms:
         num_rooms = args.num_rooms
     problem_config = ProblemConfig(
@@ -198,63 +314,40 @@ def try_solve(args):
         seen = set()
         for conn in spoiler_aedificium.connections:
             fr = conn['from']
-            fr['room'] %= 6
+            fr['room'] %= 3
             to = conn['to']
-            to['room'] %= 6
+            to['room'] %= 3
             tag = (fr['room'], fr['door'])
             if tag not in seen:
                 conns.append({'from': fr, 'to': to})
                 seen.add(tag)
 
-    #estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:6], spoiler_aedificium.starting_room, conns)
+    #estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:3], spoiler_aedificium.starting_room, conns)
 
-    # Number of random-walk augmentations to gather extra information
-    random_walk_stalks = getattr(args, "deep_expeditions", 10)
     if mode == 'DOUBLE':
-        # ランダムウォークして情報をあつめる
-        covering_path = estimated_aedificium.build_covering_path()
-        print('cover', covering_path)
-        max_len = problem_config.num_rooms * 2 * 6
-        plans = []
-        for i in range(random_walk_stalks):
-            raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
-            enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + raw_plan)
-            plans.append(enhanced_plan)
-        res = client.explore(plans)
-        dests_list = []
-        for (plan, results) in zip(plans, res['results']):
-            dests = estimated_aedificium.build_dest_maps_double(plan, results)
-            if dests is not None:
-                dests_list.append(dests)
-        final_dests = {}
-        for dests in dests_list:
-            for (key, val) in dests.items():
-                if key in final_dests and final_dests[key] != val:
-                    print(f"Error: conflicting dests: door={key}, dest1={final_dests[key]}, dest2={val}")
-                    return
-                final_dests[key] = val
-        try:
-            connections = build_connections(final_dests, problem_config.num_rooms * factor)
-            estimated_aedificium = Aedificium(estimated_aedificium.rooms * 2, estimated_aedificium.starting_room, connections)
-        except:
-            print("ERROR: failed to build connections")
-            return
-        print("guess", estimated_aedificium.to_json())
+        solution = _solve_double(client, estimated_aedificium, problem_config.num_rooms, args.deep_expeditions)
+    elif mode == 'TRIPLE':
+        solution = _solve_triple(client, estimated_aedificium, problem_config.num_rooms, args.deep_expeditions)
+
+    if solution is None:
+        return None
 
     print("\n=== 復元結果 ===")
-    print(f"部屋ラベル: {estimated_aedificium.rooms}")
-    print(f"開始部屋: {estimated_aedificium.starting_room}")
-    print(f"接続数: {len(estimated_aedificium.connections)}")
+    print(f"部屋ラベル: {solution.rooms}")
+    print(f"開始部屋: {solution.starting_room}")
+    print(f"接続数: {len(solution.connections)}")
+    print("guess", solution.to_json())
+
 
     # 自己閉路の数をカウント
-    self_loops = sum(1 for conn in estimated_aedificium.connections 
+    self_loops = sum(1 for conn in solution.connections 
                     if (conn["from"]["room"] == conn["to"]["room"] and 
                         conn["from"]["door"] == conn["to"]["door"]))
     print(f"自己閉路数: {self_loops}")
-    print(f"通常接続数: {len(estimated_aedificium.connections) - self_loops}")
+    print(f"通常接続数: {len(solution.connections) - self_loops}")
 
     print("サーバーに推測を提出します")
-    guess_response = client.guess(estimated_aedificium.to_dict())
+    guess_response = client.guess(solution.to_dict())
     print(guess_response)
     return guess_response["correct"]
 
@@ -297,10 +390,12 @@ def main():
             break
         else:
             print("推測に失敗しました。再度試行します。")
+            #break
     # try_solve()
 
 
 if __name__ == "__main__":
     # multiprocessingのためのメイン実行ブロック
     multiprocessing.set_start_method('spawn', force=True)  # macOSでの互換性のため
+    random.seed(25252)
     main()
