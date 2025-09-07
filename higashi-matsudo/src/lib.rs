@@ -1,21 +1,78 @@
+pub mod union_find;
+
 use reqwest::header::{HeaderMap, HeaderValue, InvalidHeaderValue};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 
-const BASE_URL: &str = "https://wizardry-553250624194.asia-northeast1.run.app/api";
+const BASE_URL: &str = "http://localhost:8000";
 const MOCK_ID: &str = "kenkoooo";
-const OFFICIAL_ID: &str = "X6G0RVKUlX20I8XSUsnkIQ";
+const OFFICIAL_ID: &str = "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ";
 
-const PROBLEMS: [(&str, usize); 6] = [
-    ("probatio", 3),
-    ("primus", 6),
-    ("secundus", 12),
-    ("tertius", 18),
-    ("quartus", 24),
-    ("quintus", 30),
-];
+#[derive(Clone, Copy)]
+pub enum Problem {
+    Probatio,
+    Primus,
+    Secundus,
+    Tertius,
+    Quartus,
+    Quintus,
+    Aleph,
+    Beth,
+    Gimel,
+    Daleth,
+    He,
+    Vau,
+    Zain,
+    Hhet,
+    Teth,
+    Iod,
+}
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+impl Problem {
+    pub fn to_str(&self) -> &str {
+        match self {
+            Problem::Probatio => "probatio",
+            Problem::Primus => "primus",
+            Problem::Secundus => "secundus",
+            Problem::Tertius => "tertius",
+            Problem::Quartus => "quartus",
+            Problem::Quintus => "quintus",
+            Problem::Aleph => "aleph",
+            Problem::Beth => "beth",
+            Problem::Gimel => "gimel",
+            Problem::Daleth => "daleth",
+            Problem::He => "he",
+            Problem::Vau => "vau",
+            Problem::Zain => "zain",
+            Problem::Hhet => "hhet",
+            Problem::Teth => "teth",
+            Problem::Iod => "iod",
+        }
+    }
+
+    pub fn problem_size(&self) -> usize {
+        match self {
+            Problem::Probatio => 3,
+            Problem::Primus => 6,
+            Problem::Secundus => 12,
+            Problem::Tertius => 18,
+            Problem::Quartus => 24,
+            Problem::Quintus => 30,
+            Problem::Aleph => 12,
+            Problem::Beth => 24,
+            Problem::Gimel => 36,
+            Problem::Daleth => 48,
+            Problem::He => 60,
+            Problem::Vau => 18,
+            Problem::Zain => 36,
+            Problem::Hhet => 54,
+            Problem::Teth => 72,
+            Problem::Iod => 90,
+        }
+    }
+}
+
+pub(crate) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub struct ApiClient {
     client: reqwest::Client,
@@ -27,24 +84,34 @@ pub enum BackendType {
     Mock,
     Official,
 }
-#[derive(Serialize)]
+
+impl BackendType {
+    pub fn directory(&self) -> &str {
+        match self {
+            BackendType::Mock => "mock",
+            BackendType::Official => "graph-dump",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Vertex {
     pub room: usize,
     pub door: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Connection {
     pub from: Vertex,
     pub to: Vertex,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GuessRequestMap {
-    pub rooms: Vec<usize>,
+    pub rooms: Vec<u8>,
     pub starting_room: usize,
     pub connections: Vec<Connection>,
 }
@@ -53,6 +120,38 @@ pub struct GuessRequestMap {
 #[serde(rename_all = "camelCase")]
 pub struct GuessResponse {
     pub correct: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Event {
+    VisitRoom { label: u8 },
+    Overwrite { label: u8 },
+    OpenDoor { door: usize },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ExploreQuery {
+    Open { door: usize },
+    Charcoal { label: u8 },
+}
+
+impl ExploreQuery {
+    pub fn open(door: usize) -> Self {
+        Self::Open { door }
+    }
+
+    pub fn charcoal(label: u8) -> Self {
+        Self::Charcoal { label }
+    }
+}
+
+impl ToString for ExploreQuery {
+    fn to_string(&self) -> String {
+        match self {
+            ExploreQuery::Open { door } => door.to_string(),
+            ExploreQuery::Charcoal { label } => format!("[{}]", label),
+        }
+    }
 }
 
 impl TryFrom<BackendType> for HeaderValue {
@@ -78,34 +177,8 @@ impl ApiClient {
         })
     }
 
-    pub async fn select(&self, problem_name: &str) -> Result<usize> {
-        let problem = PROBLEMS
-            .iter()
-            .find(|(name, _)| *name == problem_name)
-            .ok_or("error: problem not found")?;
+    pub async fn select(&self, problem: Problem) -> Result<()> {
         let url = format!("{BASE_URL}/select");
-        let id = match self.backend_type {
-            BackendType::Mock => MOCK_ID,
-            BackendType::Official => OFFICIAL_ID,
-        };
-        self.client
-            .post(url)
-            .json(&json!({
-                "id": id,
-                "problemName": problem.0,
-            }))
-            .send()
-            .await?;
-        Ok(problem.1)
-    }
-
-    pub async fn explore(&self, plan: &[usize]) -> Result<Vec<usize>> {
-        let url = format!("{BASE_URL}/explore");
-        let plan = plan
-            .iter()
-            .map(|&x| x.to_string().chars().collect::<Vec<char>>())
-            .flatten()
-            .collect::<String>();
         let id = match self.backend_type {
             BackendType::Mock => MOCK_ID,
             BackendType::Official => OFFICIAL_ID,
@@ -115,19 +188,66 @@ impl ApiClient {
             .post(url)
             .json(&json!({
                 "id": id,
-                "plans": [plan],
+                "problemName": problem.to_str(),
             }))
             .send()
+            .await?
+            .json::<Value>()
             .await?;
+        eprintln!("response={:?}", response);
+        Ok(())
+    }
+
+    pub async fn explore(&self, plans: &[Vec<ExploreQuery>]) -> Result<Vec<Vec<Event>>> {
+        let url = format!("{BASE_URL}/explore");
+        let mut queries = vec![];
+        for plan in plans {
+            let query = plan
+                .iter()
+                .map(|&x| x.to_string())
+                .collect::<Vec<String>>()
+                .join("");
+            queries.push(query);
+        }
+        let id = match self.backend_type {
+            BackendType::Mock => MOCK_ID,
+            BackendType::Official => OFFICIAL_ID,
+        };
+        let request = json!({
+            "id": id,
+            "plans": queries,
+        });
+        let response = self.client.post(url).json(&request).send().await?;
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Response {
-            results: Vec<Vec<usize>>,
+            results: Vec<Vec<u8>>,
         }
 
-        let response = response.json::<Response>().await?;
-        Ok(response.results.into_iter().flatten().collect())
+        let response = response.json::<Value>().await?;
+        let response = serde_json::from_value::<Response>(response)?;
+
+        let mut batch = vec![];
+        for (results, plan) in response.results.iter().zip(plans) {
+            let mut events = vec![];
+            events.push(Event::VisitRoom { label: results[0] });
+
+            for (&result, &plan) in results.iter().skip(1).zip(plan.iter()) {
+                match plan {
+                    ExploreQuery::Open { door } => {
+                        events.push(Event::OpenDoor { door });
+                        events.push(Event::VisitRoom { label: result });
+                    }
+                    ExploreQuery::Charcoal { label } => {
+                        events.push(Event::Overwrite { label });
+                    }
+                }
+            }
+            batch.push(events);
+        }
+
+        Ok(batch)
     }
 
     pub async fn guess(&self, map: &GuessRequestMap) -> Result<bool> {
@@ -147,45 +267,5 @@ impl ApiClient {
             .send()
             .await?;
         Ok(response.json::<GuessResponse>().await?.correct)
-    }
-}
-
-#[derive(Clone)]
-pub struct MultiSet<const N: usize> {
-    set: [usize; N],
-    size: usize,
-}
-
-impl<const N: usize> MultiSet<N> {
-    pub fn new() -> Self {
-        Self {
-            set: [0; N],
-            size: 0,
-        }
-    }
-
-    pub fn insert(&mut self, value: usize) {
-        self.set[value] += 1;
-        self.size += 1;
-    }
-
-    pub fn remove(&mut self, value: usize) {
-        assert!(self.set[value] > 0);
-        self.set[value] -= 1;
-        self.size -= 1;
-    }
-
-    pub fn len(&self) -> usize {
-        self.size
-    }
-
-    pub fn to_vec(&self) -> Vec<usize> {
-        let mut vec = Vec::new();
-        for (i, &count) in self.set.iter().enumerate() {
-            for _ in 0..count {
-                vec.push(i);
-            }
-        }
-        vec
     }
 }
