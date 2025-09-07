@@ -19,8 +19,8 @@ class ProblemConfig:
 
 @dataclass
 class Explore:
-    plan: str
-    result: List[int]
+    plans: List[str]
+    result: List[List[int]]
 
 
 public_names = {
@@ -69,8 +69,9 @@ def solve(args) -> Aedificium | None:
     # subprocess feed input
     input_data = f"""\
 {problem_config.num_rooms}
-{explore.plan}
-{''.join(map(str, explore.result))}
+{len(explore.plans)}
+{' '.join(explore.plans)}
+{' '.join(''.join(map(str, r)) for r in explore.result)}
 """
     result = subprocess.check_output([binary_path, str(problem_config.num_rooms)], text=True, input=input_data)
     
@@ -152,10 +153,10 @@ def try_solve(args):
     binary_name = "solve.exe"
 
     client.select(problem_config.problem_name)
-    plan = ''.join(random.choices('012345', k=problem_config.num_rooms * factor * 6))
-    explore_response = client.explore([plan])
-    result = explore_response["results"][0]
-    explore = Explore(plan=plan, result=result)
+    plans = [''.join(random.choices('012345', k=problem_config.num_rooms * factor * 6)) for _ in range(args.initial_expeditions)]
+    explore_response = client.explore(plans)
+    result = explore_response["results"]
+    explore = Explore(plans=plans, result=result)
     
     # 並列実行のパラメータ設定
     if getattr(args, "parallelism", None) is not None:
@@ -279,8 +280,12 @@ def main():
         help="Number of worker processes (default: cpu_count-1)",
     )
     parser.add_argument(
+        "--initial-expeditions", type=int, default=1,
+        help="Number of initial expeditions",
+    )
+    parser.add_argument(
         "--deep-expeditions", type=int, default=10,
-        help="Number of deep expeditions (random-walk stalks) used when refining DOUBLE mode",
+        help="Number of deep expeditions used when refining DOUBLE mode",
     )
     args = parser.parse_args()
     # normalize mode to uppercase if provided
