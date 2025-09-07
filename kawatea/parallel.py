@@ -101,8 +101,8 @@ def try_solve():
     explore = Explore(plan=plan, result=result)
     
     # 並列実行のパラメータ設定
-    #num_processes = max(multiprocessing.cpu_count() - 1, 1)  # CPUコア数に基づいて並列度を決定
-    num_processes = 1  # CPUコア数に基づいて並列度を決定
+    num_processes = max(multiprocessing.cpu_count() - 1, 1)  # CPUコア数に基づいて並列度を決定
+    #num_processes = 1  # CPUコア数に基づいて並列度を決定
     
     print(f"並列実行開始: {num_processes}プロセス")
     
@@ -144,13 +144,14 @@ def try_solve():
 
     #estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:6], spoiler_aedificium.starting_room, conns)
 
+    random_walk_stalks = 10
     if mode == 'DOUBLE':
         # ランダムウォークして情報をあつめる
         covering_path = estimated_aedificium.build_covering_path()
         print('cover', covering_path)
         max_len = problem_config.num_rooms * 2 * 6
         plans = []
-        for i in range(10):
+        for i in range(random_walk_stalks):
             raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
             enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + raw_plan)
             plans.append(enhanced_plan)
