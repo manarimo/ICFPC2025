@@ -1,6 +1,8 @@
 import random
 import multiprocessing
 import os
+import re
+import argparse
 from dataclasses import dataclass
 from typing import List
 from pathlib import Path
@@ -21,8 +23,16 @@ class Explore:
     result: List[int]
 
 
-def ensure_binary():
-    subprocess.run(["make", "solve.exe"], check=True, cwd=Path(__file__).parent)
+def ensure_binary(mode: str | None = None):
+    """Build the appropriate solver binary depending on mode.
+
+    SINGLE -> build default solver (simulated_annealing.cpp)
+    DOUBLE/TRIPLE -> build hebrew solver (simulated_annealing_hebrew.cpp)
+    """
+    target = ["make", "solve.exe"]
+    if mode in {"DOUBLE", "TRIPLE"}:
+        target = ["make", "solve_hebrew.exe"]
+    subprocess.run(target, check=True, cwd=Path(__file__).parent)
 
 
 def solve(args) -> Aedificium | None:
@@ -31,17 +41,17 @@ def solve(args) -> Aedificium | None:
     各プロセスで異なる乱数状態を初期化する
     
     Args:
-        args: (process_id, problem_config, explore)
+        args: (process_id, problem_config, explore, binary_name)
         
     Returns:
         Tuple[List[int], int]: (推定された部屋IDの履歴, 適合度)
     """
-    process_id, problem_config, explore = args
+    process_id, problem_config, explore, binary_name = args
     
     print(f"プロセス {process_id} (PID: {os.getpid()}): 問題 = {problem_config}")
     
     # call c++ binary
-    binary_path = Path(__file__).parent / "solve.exe"
+    binary_path = Path(__file__).parent / binary_name
     # subprocess feed input
     input_data = f"""\
 {problem_config.num_rooms}
@@ -73,35 +83,68 @@ def solve(args) -> Aedificium | None:
     return Aedificium(rooms=rooms, starting_room=starting_room, connections=connections)
 
 
-def try_solve():
-    """メイン関数"""
-    # APIクライアントを作成
-    # api_base, api_id = "http://localhost:8000", "kawatea_parallel"  # ローカルテスト用
-    # api_base, api_id = "http://localhost:8000", "kawatea_parallel"  # ローカルテスト用
-    api_base, api_id = (
-        "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com", 
-        "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ"
-    )  # 本番用
+def _infer_mode(problem_name: str) -> str:
+    name = problem_name.lower()
+    single = {"probatio", "primus", "secundus", "tertius", "quartus", "quintus"}
+    double = {"aleph", "beth", "gimel", "daleth", "he"}
+    triple = {"vau", "zain", "hhet", "teth", "iod"}
+    if name in single:
+        return "SINGLE"
+    if name in double:
+        return "DOUBLE"
+    if name in triple:
+        return "TRIPLE"
+    m = re.match(r"random_full_(\d+)_(\d+)", name)
+    if m:
+        dup = int(m.group(2))
+        return {1: "SINGLE", 2: "DOUBLE", 3: "TRIPLE"}.get(dup, "DOUBLE")
+    return "DOUBLE"
 
-    ensure_binary()
 
-    client = api.create_client(api_base=api_base, api_id=api_id)
-    
-    # 2倍問題・3倍問題の場合はnum_roomsを縮小マップのサイズで指定する
-    mode = 'DOUBLE'
-    problem_config = ProblemConfig(
-        problem_name="beth", 
-        num_rooms=12,
+def _duplication_factor(mode: str) -> int:
+    return {"SINGLE": 1, "DOUBLE": 2, "TRIPLE": 3}.get(mode, 2)
+
+
+def _create_client_for_target(target_server: str):
+    if target_server == "local":
+        return api.create_client(api_base="http://localhost:8000", api_id="kawatea_parallel_local")
+    if target_server == "mock":
+        return api.create_client(api_base="https://lord-crossight-553250624194.asia-northeast1.run.app", api_id="kawatea_parallel_mock")
+    # contest (本番用)
+    return api.create_client(
+        api_base="https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com",
+        api_id="amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ",
     )
 
+
+def try_solve(args):
+    """メイン関数"""
+    client = _create_client_for_target(args.target_server)
+
+    # 2倍問題・3倍問題の場合はnum_roomsを縮小マップのサイズで指定する
+    problem_config = ProblemConfig(
+        problem_name=args.problem_name,
+        num_rooms=args.num_rooms,
+    )
+
+    mode = args.mode or _infer_mode(problem_config.problem_name)
+    factor = _duplication_factor(mode)
+
+    # Build appropriate solver after we know mode
+    ensure_binary(mode)
+    binary_name = "solve_hebrew.exe" if mode in {"DOUBLE", "TRIPLE"} else "solve.exe"
+
     client.select(problem_config.problem_name)
-    plan = ''.join(random.choices('012345', k=problem_config.num_rooms * 2 * 6))
+    plan = ''.join(random.choices('012345', k=problem_config.num_rooms * factor * 6))
     explore_response = client.explore([plan])
     result = explore_response["results"][0]
     explore = Explore(plan=plan, result=result)
     
     # 並列実行のパラメータ設定
-    num_processes = max(multiprocessing.cpu_count() - 1, 1)  # CPUコア数に基づいて並列度を決定
+    if getattr(args, "parallelism", None) is not None:
+        num_processes = max(int(args.parallelism), 1)
+    else:
+        num_processes = max(multiprocessing.cpu_count() - 1, 1)  # CPUコア数に基づいて並列度を決定
     #num_processes = 1  # CPUコア数に基づいて並列度を決定
     
     print(f"並列実行開始: {num_processes}プロセス")
@@ -109,12 +152,13 @@ def try_solve():
     # 各プロセス用の引数を準備
     process_args = []
     for i in range(num_processes):
-        args = (
+        proc_arg = (
             i,  # process_id
             problem_config,
             explore,
+            binary_name,
         )
-        process_args.append(args)
+        process_args.append(proc_arg)
     
     # 並列実行
     with multiprocessing.Pool(processes=num_processes) as pool:
@@ -168,7 +212,7 @@ def try_solve():
                     print(f"Error: conflicting dests: door={key}, dest1={final_dests[key]}, dest2={val}")
                     return
                 final_dests[key] = val
-        connections = build_connections(final_dests, problem_config.num_rooms * 2)
+        connections = build_connections(final_dests, problem_config.num_rooms * factor)
         estimated_aedificium = Aedificium(estimated_aedificium.rooms * 2, estimated_aedificium.starting_room, connections)
         print("guess", estimated_aedificium.to_json())
 
@@ -191,8 +235,32 @@ def try_solve():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Parallel solver runner")
+    parser.add_argument("--problem-name", default="beth", help="Set problem_config.problem_name (e.g., beth, secundus)")
+    parser.add_argument("--num-rooms", type=int, default=12, help="Set problem_config.num_rooms (single map size)")
+    parser.add_argument(
+        "--mode",
+        choices=["single", "double", "triple"],
+        default=None,
+        help="Override mode (normally inferred from problem name)",
+    )
+    parser.add_argument(
+        "--target-server",
+        choices=["local", "mock", "contest"],
+        default="local",
+        help="Select API server: local|mock|contest",
+    )
+    parser.add_argument(
+        "--parallelism", "-j", type=int, default=None,
+        help="Number of worker processes (default: cpu_count-1)",
+    )
+    args = parser.parse_args()
+    # normalize mode to uppercase if provided
+    if args.mode:
+        args.mode = args.mode.upper()
+
     while True:
-        if try_solve():
+        if try_solve(args):
             break
         else:
             print("推測に失敗しました。再度試行します。")
