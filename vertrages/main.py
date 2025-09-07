@@ -21,7 +21,7 @@ def solve(single_rooms: int, duplication_factor: int, client: api.APIClient) -> 
 def solve_single(num_rooms: int, client: api.APIClient) -> Aedificium:
     random_seed = None
     hash_length = 6
-    hash_count = 6
+    hash_count = 4
     first_steps = 6
   
     random = Random(random_seed)
@@ -107,14 +107,14 @@ def solve_single(num_rooms: int, client: api.APIClient) -> Aedificium:
 
 
 def main():
-    # client = api.APIClient(
-    #     api_base="http://localhost:8000",
-    #     api_id="vertrages",
-    # )
     client = api.APIClient(
-        api_base="https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com",
-        api_id="amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ",
+        api_base="http://localhost:8000",
+        api_id="vertrages",
     )
+    # client = api.APIClient(
+    #     api_base="https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com",
+    #     api_id="amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ",
+    # )
 
     problem_name = "quintus"
     # problem_name = "random_full_6_2_42"
