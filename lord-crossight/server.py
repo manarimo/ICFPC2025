@@ -243,7 +243,7 @@ class ICFPMockServer(BaseHTTPRequestHandler):
         # プラン数の制限チェック（6n doorways per night）
         parsed_plans = [parse_plan(plan) for plan in plans]
         plan_lengths = [len([(move, arg) for move, arg in plan if move == Action.MOVE]) for plan in parsed_plans]
-        max_length = 1000 * len(current_aedificium.rooms)
+        max_length = 6 * len(current_aedificium.rooms)
         
         if max(plan_lengths) > max_length:
             self._send_error(400, f"max plan length ({max(plan_lengths)}) exceeds limit ({max_length})")
