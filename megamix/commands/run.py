@@ -29,12 +29,12 @@ def run_command(args):
     problem_id = args.problem_id
     server = args.server
     seed = args.seed
+    n_plans = args.n_plans
 
-    return run(solver, problem_id, server, seed)
+    return run(solver, problem_id, server, seed, n_plans)
 
 
-def run(solver: str, problem_id: str, server: str, seed: int) -> int:
-    n_plans = 1
+def run(solver: str, problem_id: str, server: str, seed: int, n_plans: int = 1) -> int:
     
     # ソルバーのバイナリが存在するかチェック
     if not os.path.exists(solver):
@@ -143,6 +143,13 @@ def add_run_parser(subparsers):
         type=int,
         default=42,
         help="使用するシード（デフォルト: 42）"
+    )
+
+    run_parser.add_argument(
+        "--n-plans",
+        type=int,
+        default=1,
+        help="生成するプランの数（デフォルト: 1）"
     )
     
     run_parser.set_defaults(func=run_command)

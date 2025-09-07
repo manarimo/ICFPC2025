@@ -17,18 +17,18 @@ def run_single_seed_worker(args_tuple):
     プロセスプールで実行される単一のシードでのワーカー関数
     
     Args:
-        args_tuple: (solver, problem_id, server, seed) のタプル
+        args_tuple: (solver, problem_id, server, seed, n_plans) のタプル
         
     Returns:
         dict: 実行結果
     """
-    solver, problem_id, server, seed = args_tuple
+    solver, problem_id, server, seed, n_plans = args_tuple
     
     try:
         # runの出力をキャプチャするため、標準出力をリダイレクト
         captured_output = io.StringIO()
         with contextlib.redirect_stdout(captured_output):
-            exit_code = run(solver, problem_id, server, seed)
+            exit_code = run(solver, problem_id, server, seed, n_plans)
         
         output = captured_output.getvalue().strip()
         
@@ -74,14 +74,15 @@ def eval_command(args):
     server = args.server
     num_seeds = args.num_seeds
     max_workers = args.max_workers
+    n_plans = args.n_plans
 
     # シード数からシードリストを生成
     seeds = list(range(num_seeds))
     
-    return evaluate(solver, problem_id, server, seeds, max_workers)
+    return evaluate(solver, problem_id, server, seeds, max_workers, n_plans)
 
 
-def evaluate(solver: str, problem_id: str, server: str, seeds: list, max_workers: int) -> int:
+def evaluate(solver: str, problem_id: str, server: str, seeds: list, max_workers: int, n_plans: int = 1) -> int:
     """
     複数のシードでソルバーを並列実行し、正解率を計算する
     
@@ -91,6 +92,7 @@ def evaluate(solver: str, problem_id: str, server: str, seeds: list, max_workers
         server: サーバーURL
         seeds: 使用するシードのリスト
         max_workers: 並列実行の最大ワーカー数
+        n_plans: 生成するプランの数
     
     Returns:
         int: 終了コード
@@ -104,7 +106,7 @@ def evaluate(solver: str, problem_id: str, server: str, seeds: list, max_workers
     results = []
     
     # 並列実行用の引数リストを準備
-    worker_args = [(solver, problem_id, server, seed) for seed in seeds]
+    worker_args = [(solver, problem_id, server, seed, n_plans) for seed in seeds]
     
     # 並列実行
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
@@ -199,6 +201,13 @@ def add_eval_parser(subparsers):
         type=int,
         default=1,
         help="並列実行の最大ワーカー数（デフォルト: 1）"
+    )
+
+    eval_parser.add_argument(
+        "--n-plans",
+        type=int,
+        default=1,
+        help="生成するプランの数（デフォルト: 1）"
     )
     
     eval_parser.set_defaults(func=eval_command)

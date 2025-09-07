@@ -71,6 +71,7 @@ def _build(eval_func_path: Path) -> int:
             
             current_dir = Path.cwd()
             target_binary = current_dir / "simulated_annealing"
+            shutil.rmtree(target_binary, ignore_errors=True)
             shutil.copy2(binary_path, target_binary)
             
             # 実行権限を付与
