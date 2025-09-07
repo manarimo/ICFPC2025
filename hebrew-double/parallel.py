@@ -398,5 +398,4 @@ def main():
 if __name__ == "__main__":
     # multiprocessingのためのメイン実行ブロック
     multiprocessing.set_start_method('spawn', force=True)  # macOSでの互換性のため
-    random.seed(25252)
     main()
