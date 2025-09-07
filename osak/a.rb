@@ -1,7 +1,7 @@
 require 'json'
 
 obj = JSON.parse(ARGF.read)
-matrix = Array.new(6) { Array.new(6, nil) }
+matrix = Array.new(18) { Array.new(6, nil) }
 
 obj.each do |conn|
   matrix[conn['from']['room']][conn['from']['door']] = conn['to']['room']
