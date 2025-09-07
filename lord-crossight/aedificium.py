@@ -534,12 +534,22 @@ def create_random_aedificium(single_rooms: int, duplication_factor: int = 1, ran
                     "to": {"room": connection['to']['room'] + i * single_rooms, "door": connection['to']['door']}
                 })
             connection_dupes.append(renamed_connections)
-        for duped_connections in zip(*connection_dupes):
-            for _ in range(random_state.randint(8, 12)):
-                swap_side = random_state.choice(["from", "to"])
-                i1, i2 = random_state.sample(range(duplication_factor), 2)
-                duped_connections[i1][swap_side], duped_connections[i2][swap_side] = duped_connections[i2][swap_side], duped_connections[i1][swap_side]
+        for i, duped_connections in enumerate(zip(*connection_dupes)):
+            if duped_connections[0]["from"] == duped_connections[0]["to"]:
+                # self loop
+                i1, i2 = random_state.choices(range(duplication_factor), k=2)
+                if i1 == i2:
+                    continue
+                duped_connections[i1]["to"] = duped_connections[i2]["from"]
+                connection_dupes[i2][i] = None
+            else:
+                # normal case
+                for _ in range(random_state.randint(8, 12)):
+                    swap_side = random_state.choice(["from", "to"])
+                    i1, i2 = random_state.sample(range(duplication_factor), 2)
+                    duped_connections[i1][swap_side], duped_connections[i2][swap_side] = duped_connections[i2][swap_side], duped_connections[i1][swap_side]
         connections = sum(connection_dupes, [])
+        connections = [conn for conn in connections if conn is not None]
         candidate = Aedificium(rooms, starting_room, connections)
         if _is_connected(connections, num_rooms) and _all_doors_used(connections, num_rooms):
             return candidate
