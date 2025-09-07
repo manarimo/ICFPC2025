@@ -208,8 +208,9 @@ int calc_score(vector<pair<int, int>>& bad) {
 }
 
 int main() {
-    scanf("%d", &n);
-    plan_length = n * 3 * 6;
+    int factor;
+    scanf("%d %d", &n, &factor);
+    plan_length = n * factor * 6;
     scanf("%d", &plans);
     for (int p = 0; p < plans; ++p) {
         for (int i = 0; i < plan_length; i++) {

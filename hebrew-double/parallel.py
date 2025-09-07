@@ -59,7 +59,7 @@ def solve(args) -> Aedificium | None:
     Returns:
         Tuple[List[int], int]: (推定された部屋IDの履歴, 適合度)
     """
-    process_id, problem_config, explore, binary_name = args
+    process_id, problem_config, explore, binary_name, factor = args
     
     print(f"プロセス {process_id} (PID: {os.getpid()}): 問題 = {problem_config}")
     
@@ -67,7 +67,7 @@ def solve(args) -> Aedificium | None:
     binary_path = Path(__file__).parent / binary_name
     # subprocess feed input
     input_data = f"""\
-{problem_config.num_rooms}
+{problem_config.num_rooms} {factor}
 {len(explore.plans)}
 {' '.join(explore.plans)}
 {' '.join(''.join(map(str, r)) for r in explore.result)}
@@ -291,6 +291,7 @@ def try_solve(args):
             problem_config,
             explore,
             binary_name,
+            factor
         )
         process_args.append(proc_arg)
     
