@@ -266,6 +266,32 @@ class Aedificium:
             current_room = next_room
         return new_plan
 
+    def inject_charcoal_to_walk_triple(self, plan: str) -> str:
+        # TRIPLEでA面とそれ以外を分離したあとのAedificiumを仮定する。
+        # このとき、頂点番号の与え方から0~(n-1)がA面になっている。
+        # A面の頂点は元の色+1で塗る。
+        # A面のコピー面に初めて入ったら元の色+2で塗る。
+        visited = [False] * len(self.rooms)
+
+        n = len(self.rooms)
+        current_room = self.starting_room
+        new_plan = f"[{(self.rooms[next_room] + 1) % 4}]"
+        # current_roomは常にA面なのでvisitedは更新しなくてよい
+
+        for door_str in plan:
+            new_plan += door_str
+            door_num = int(door_str)
+            door = self._connection_map[(current_room, door_num)]
+            next_room = door[0]
+            if next_room < n:
+                new_plan += f"[{(self.rooms[next_room] + 1) % 4}]"
+            elif next_room >= n and not visited[next_room % n]:
+                # 頂点番号がn以上の頂点に初めて入ったらラベルを張り替える
+                visited[next_room % n] = True
+                new_plan += f"[{(self.rooms[next_room] + 2) % 4}]"
+            current_room = next_room
+        return new_plan
+
     def build_dest_maps_double(self, plan_str: str, result: List[int]) -> Dict[Tuple[int, int], int] | None:
         # n = 縮小マップの次数 (実際のn / 2)
         n = len(self.rooms)
@@ -296,12 +322,45 @@ class Aedificium:
             current_room, current_layer = next_room, next_layer
         return dests
 
-    def build_covering_path(self) -> str:
+    def build_dest_maps_triple(self, plan_str: str, result: List[int]) -> Dict[Tuple[int, int], int] | None:
+        # n = A面識別済みマップの次数 (実際の2n / 3)
+        n = len(self.rooms)
+        dests = {}
+        plan = parse_plan(plan_str)
+        print(plan)
+
+        # A面識別済みマップの上で動きをシミュレートし、実際のラベルが異なる場合はレイヤーをまたいだと判断する
+        current_room = self.starting_room
+        current_layer = 0
+        for ((action, door_num), label, (next_action, _)) in zip(plan, result[1:], (plan[1:] + [(None, None)])):
+            #print("cur", f"({current_room}, {current_layer})")
+            if action == Action.USE_CHARCOAL:
+                current_layer = 0
+                continue
+            door = self._connection_map[(current_room, door_num)]
+            next_room = door[0]
+            if next_room < n:
+                next_layer = 0
+            elif next_action != Action.USE_CHARCOAL and self.rooms[next_room] == label:
+                next_layer = 2
+            else:
+                next_layer = 1
+            from_door = (current_room + current_layer * n, door_num)
+            to_room = next_room + next_layer * n
+            if from_door in dests and dests[from_door] != to_room:
+                print(f"[ERROR] Conflicting door: {from_door}, {to_room}, {dests[from_door]}")
+                return None
+            dests[from_door] = to_room
+            current_room, current_layer = next_room, next_layer
+        return dests
+
+
+    def build_covering_path(self, targets: List[int]) -> str:
         n = len(self.rooms)
         done = [False] * n
         cur_room = self.starting_room
         final_plan = ""
-        for target in range(n):
+        for target in targets:
             if done[target]:
                 continue
             visited = [False] * n
