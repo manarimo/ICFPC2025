@@ -16,7 +16,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut rng = rand::rng();
-    let backend_type = BackendType::Official;
+    let backend_type = BackendType::Mock;
     let client = ApiClient::new(backend_type)?;
 
     loop {

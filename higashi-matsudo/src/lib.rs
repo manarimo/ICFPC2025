@@ -4,7 +4,7 @@ use reqwest::header::{HeaderMap, HeaderValue, InvalidHeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const BASE_URL: &str = "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com";
+const BASE_URL: &str = "http://localhost:8000";
 const MOCK_ID: &str = "kenkoooo";
 const OFFICIAL_ID: &str = "amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ";
 
