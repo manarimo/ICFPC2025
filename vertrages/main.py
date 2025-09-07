@@ -1,20 +1,31 @@
-import api
-from typing import List
 from random import Random
 import itertools
 from collections import defaultdict
-from aedificium import build_connections, Aedificium
+from pathlib import Path
+import time
+import json
+
+from aedificium import build_connections, Aedificium, problem_names
+import api
 
 
 def solve(single_rooms: int, duplication_factor: int, client: api.APIClient) -> Aedificium:
+    num_rooms = single_rooms * duplication_factor
+    aedificium = solve_single(single_rooms, client)
+    if duplication_factor > 1:
+        print("not implemented")
+        return None
+    return aedificium
+
+
+def solve_single(num_rooms: int, client: api.APIClient) -> Aedificium:
     random_seed = None
     hash_length = 6
     hash_count = 6
-    first_steps = 5
+    first_steps = 6
   
     random = Random(random_seed)
 
-    num_rooms = single_rooms * duplication_factor
     vertex_hasher_plans = [
         ''.join(random.choices("012345", k=hash_length)) for _ in range(hash_count)
     ]
@@ -96,19 +107,39 @@ def solve(single_rooms: int, duplication_factor: int, client: api.APIClient) -> 
 
 
 def main():
+    # client = api.APIClient(
+    #     api_base="http://localhost:8000",
+    #     api_id="vertrages",
+    # )
     client = api.APIClient(
-        api_base="http://localhost:8000",
-        api_id="vertrages",
+        api_base="https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com",
+        api_id="amylase.inquiry@gmail.com X6G0RVKUlX20I8XSUsnkIQ",
     )
-    single_rooms = 30
-    duplication_factor = 1
-    client.select(f"random_full_{single_rooms}_{duplication_factor}_42")
+
+    problem_name = "quintus"
+    # problem_name = "random_full_6_2_42"
+    if problem_name in problem_names():
+        single_rooms, duplication_factor = problem_names()[problem_name]
+    else:
+        single_rooms = 6
+        duplication_factor = 2
+    client.select(problem_name)
     aedificium = solve(single_rooms, duplication_factor, client)
     if aedificium is None:
         print("failed to solve")
         return
     judge_result = client.guess(aedificium.to_dict())
     print(f"judge_result: {judge_result}")
+    if not judge_result["correct"]:
+        print("failed to guess")
+        return
+    if client.api_base != "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com":
+        return
+    print("official remote server was used. saving our guess...")
+    path = Path(__file__).parent / "official_aedificiums" / problem_name / f"{int(time.time() * 10 ** 6)}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        json.dump(aedificium.to_dict(), f)
 
 
 if __name__ == "__main__":
