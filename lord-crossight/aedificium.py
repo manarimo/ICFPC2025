@@ -266,33 +266,28 @@ class Aedificium:
             current_room = next_room
         return new_plan
 
-    def inject_charcoal_to_walk_triple(self, plan: str) -> str:
-        # TRIPLEでA面とそれ以外を分離したあとのAedificiumを仮定する。
-        # このとき、頂点番号の与え方から0~(n-1)がA面になっている。
-        # A面の頂点は元の色+1で塗る。
-        # A面のコピー面に初めて入ったら元の色+2で塗る。
-        visited = [False] * len(self.rooms)
+    def inject_charcoal_to_walk_triple(self, plan_str: str, layer_b_pos: Dict[int, int]) -> str:
+        plan = parse_plan(plan_str)
 
-        n = len(self.rooms)
         current_room = self.starting_room
-        new_plan = f"[{(self.rooms[next_room] + 1) % 4}]"
-        # current_roomは常にA面なのでvisitedは更新しなくてよい
-
-        for door_str in plan:
-            new_plan += door_str
-            door_num = int(door_str)
-            door = self._connection_map[(current_room, door_num)]
+        new_plan = []
+        for (i, move) in enumerate(plan):
+            new_plan.append(move)
+            door = self._connection_map[(current_room, move[1])]
             next_room = door[0]
-            if next_room < n:
-                new_plan += f"[{(self.rooms[next_room] + 1) % 4}]"
-            elif next_room >= n and not visited[next_room % n]:
-                # 頂点番号がn以上の頂点に初めて入ったらラベルを張り替える
-                visited[next_room % n] = True
-                new_plan += f"[{(self.rooms[next_room] + 2) % 4}]"
+            if i in layer_b_pos:
+                new_plan.append((Action.USE_CHARCOAL, (self.rooms[next_room] + 2) % 4))
             current_room = next_room
-        return new_plan
 
-    def build_dest_maps_double(self, plan_str: str, result: List[int]) -> Dict[Tuple[int, int], int] | None:
+        new_plan_str = ""
+        for (action, payload) in new_plan:
+            if action == Action.MOVE:
+                new_plan_str += str(payload)
+            elif action == Action.USE_CHARCOAL:
+                new_plan_str += f"[{payload}]"
+        return new_plan_str
+
+    def build_dest_maps_double(self, plan_str: str, result: List[int], ignore_layer_b_transition: bool = False) -> Dict[Tuple[int, int], int] | None:
         # n = 縮小マップの次数 (実際のn / 2)
         n = len(self.rooms)
         dests = {}
@@ -303,7 +298,7 @@ class Aedificium:
         current_room = self.starting_room
         current_layer = 0
         for ((action, door_num), label, (next_action, _)) in zip(plan, result[1:], (plan[1:] + [(None, None)])):
-            #print("cur", f"({current_room}, {current_layer})")
+            print("cur", f"({current_room}, {current_layer}): ({action}, {door_num})")
             if action == Action.USE_CHARCOAL:
                 current_layer = 0
                 continue
@@ -315,43 +310,66 @@ class Aedificium:
                 next_layer = 0
             from_door = (current_room + current_layer * n, door_num)
             to_room = next_room + next_layer * n
-            if from_door in dests and dests[from_door] != to_room:
-                print(f"[ERROR] Conflicting door: {from_door}, {to_room}, {dests[from_door]}")
-                return None
-            dests[from_door] = to_room
+            if not (ignore_layer_b_transition and current_layer != 0):
+                if from_door in dests and dests[from_door] != to_room:
+                    print(f"[ERROR] Conflicting door: {from_door}, {to_room}, {dests[from_door]}")
+                    return None
+                dests[from_door] = to_room
             current_room, current_layer = next_room, next_layer
         return dests
-
-    def build_dest_maps_triple(self, plan_str: str, result: List[int]) -> Dict[Tuple[int, int], int] | None:
-        # n = A面識別済みマップの次数 (実際の2n / 3)
-        n = len(self.rooms)
-        dests = {}
+    
+    def build_layer_b_pos(self, plan_str: str, results: List[int]) -> Dict[int, int]:
+        layer_a_visited = [False] * len(self.rooms)
+        layer_b_visited = [False] * len(self.rooms)
         plan = parse_plan(plan_str)
-        print(plan)
 
-        # A面識別済みマップの上で動きをシミュレートし、実際のラベルが異なる場合はレイヤーをまたいだと判断する
+        layer_b_pos = {}
         current_room = self.starting_room
-        current_layer = 0
-        for ((action, door_num), label, (next_action, _)) in zip(plan, result[1:], (plan[1:] + [(None, None)])):
-            #print("cur", f"({current_room}, {current_layer})")
+        for (i, ((action, door_num), label)) in enumerate(zip(plan, results[1:])):
             if action == Action.USE_CHARCOAL:
-                current_layer = 0
+                layer_a_visited[current_room] = True
                 continue
             door = self._connection_map[(current_room, door_num)]
             next_room = door[0]
-            if next_room < n:
+            if layer_a_visited[next_room] and self.rooms[next_room] == label:
+                if not layer_b_visited[next_room]:
+                    layer_b_visited[next_room] = True
+                    layer_b_pos[i] = next_room
+            current_room = next_room
+        return layer_b_pos
+
+    def build_dest_maps_triple(self, plan_str: str, result: List[int]) -> Dict[Tuple[int, int], int] | None:
+        # n = 縮小マップの次数（実際の1/3）
+        n = len(self.rooms)
+        dests = {}
+        plan = parse_plan(plan_str)
+
+        current_room = self.starting_room
+        current_layer = 0
+        for ((action, door_num), label, (next_action, next_payload)) in zip(plan, result[1:], (plan[1:] + [(None, None)])):
+            print("cur", f"({current_room}, {current_layer}): ({action}, {door_num})")
+            if action == Action.USE_CHARCOAL:
+                continue
+            door = self._connection_map[(current_room, door_num)]
+            next_room = door[0]
+            if next_action == Action.USE_CHARCOAL:
+                label = next_payload
+            if label == (self.rooms[next_room] + 1) % 4:
                 next_layer = 0
-            elif next_action != Action.USE_CHARCOAL and self.rooms[next_room] == label:
-                next_layer = 2
-            else:
+            elif label == (self.rooms[next_room] + 2) % 4:
                 next_layer = 1
+            else:
+                next_layer = 2
             from_door = (current_room + current_layer * n, door_num)
             to_room = next_room + next_layer * n
             if from_door in dests and dests[from_door] != to_room:
                 print(f"[ERROR] Conflicting door: {from_door}, {to_room}, {dests[from_door]}")
                 return None
             dests[from_door] = to_room
+            if from_door == (7, 2):
+                print("****")
             current_room, current_layer = next_room, next_layer
+        print("---")
         return dests
 
 
@@ -690,7 +708,6 @@ def reconstruct_aedificium(plan: str, result: List[int], room_history: List[int]
 def build_connections(door_destinations: Dict[Tuple[int, int], int], num_rooms: int | None = None) -> List[Dict[str, Any]] | None:
     if num_rooms is None:
         num_rooms = len(door_destinations) // 6
-    num_rooms = len(door_destinations) // 6
     incoming_doors = [set() for _ in range(num_rooms)]
     for door, room_to in door_destinations.items():
         incoming_doors[room_to].add(door)
