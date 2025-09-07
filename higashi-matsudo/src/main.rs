@@ -21,13 +21,6 @@ async fn main() -> Result<()> {
 
     loop {
         let problems = [
-            Problem::Probatio,
-            Problem::Primus,
-            Problem::Secundus,
-            Problem::Tertius,
-            Problem::Quartus,
-            Problem::Quintus,
-            Problem::Aleph,
             Problem::Beth,
             Problem::Gimel,
             Problem::Daleth,
