@@ -17,8 +17,8 @@ class ProblemConfig:
 
 @dataclass
 class Explore:
-    plan: str
-    result: List[int]
+    plans: [str]
+    result: [List[int]]
 
 
 def ensure_binary():
@@ -45,9 +45,13 @@ def solve(args) -> Aedificium | None:
     # subprocess feed input
     input_data = f"""\
 {problem_config.num_rooms}
-{explore.plan}
-{''.join(map(str, explore.result))}
+{len(explore.plans)}
+{' '.join(explore.plans)}
+{' '.join(''.join(map(str, r)) for r in explore.result)}
 """
+
+    print(f"{input_data}")
+
     result = subprocess.check_output([binary_path, str(problem_config.num_rooms)], text=True, input=input_data)
     
     output_lines = result.splitlines()
@@ -92,10 +96,11 @@ def try_solve():
     )
 
     client.select(problem_config.problem_name)
-    plan = ''.join(random.choices('012345', k=problem_config.num_rooms * 18))
-    explore_response = client.explore([plan])
-    result = explore_response["results"][0]
-    explore = Explore(plan=plan, result=result)
+    p = 3
+    plans = [''.join(random.choices('012345', k=problem_config.num_rooms * 6)) for _ in range(p)]
+    explore_response = client.explore(plans)
+    result = explore_response["results"]
+    explore = Explore(plans=plans, result=result)
     
     # 並列実行のパラメータ設定
     num_processes = max(multiprocessing.cpu_count() - 1, 1)  # CPUコア数に基づいて並列度を決定
