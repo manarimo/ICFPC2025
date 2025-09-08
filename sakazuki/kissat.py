@@ -5,7 +5,7 @@ from pathlib import Path
 solver_path = (Path(__file__).parent / "kissat").resolve()
 
 
-def solve(dimacs: str) -> dict[str, bool]:
+def solve(dimacs: str) -> dict[str, bool] | None:
     """
     solve関数の実装
 
@@ -17,6 +17,8 @@ def solve(dimacs: str) -> dict[str, bool]:
     """
     input_vars = parse_input_vars(dimacs)
     result = subprocess.run([str(solver_path), "-q"], text=True, input=dimacs, capture_output=True)
+    if "unsat" in result.stdout:
+        return None
     assignments = parse_output(result.stdout)
     return {var_name: assignments[var_number] for var_name, var_number in input_vars.items()}
 
