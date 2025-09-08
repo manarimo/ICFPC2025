@@ -12,12 +12,17 @@
 
 We attacked ICFPC 2025’s Ædificium reconstruction with a pragmatic, solver‑driven approach centered on simulated annealing (SA), complemented by targeted plan design and light tooling around the official API.
 
-- We model each problem as a graph of hex rooms (6 doors/room) with labels in {0..3}. Route plans are strings of door indices (`0..5`) with optional charcoal injections (`[k]`) to overwrite labels in‑flight.
-- We stage by duplication mode:
-  - Single: straightforward reconstruction from randomized plans.
-  - Double: cover the reduced graph, then use charcoal to detect cross‑layer transitions and stitch edges.
-  - Triple: identify B‑layer entrances, inject specific charcoal to separate B/C, then finalize connections.
-- We run multiple SA workers in parallel and stop early on first valid reconstruction.
+The core idea of the solution was to figure out the order of the rooms visited. The ordering must be consistent with a random walk in the library.
+Our SA directly optimizes the ordering, followed by the postprocessor that reconstructs the door connection by combining the visit ordering and the executed plan.
+
+Full-SA based double/triple solver extends the original idea; it optimizes whether the room is "original" or "mirror" in addition to the room ordering. Unfortunately, it caused explosion in the number of possible states which made it only feasible to solve very small instances.
+
+The "labeling" approach was the main strategy that solved most double and triple problems. It is based on an essential assumption: these problems are made by copying the same map twice or thrice to make layers. Then edges are "shuffled" so an edge may connect the same node but in the "copied" map, allowing us to navigate through different layers while the entire map indistinguishable from single-layer one by labels. These are not clearly written in the problem specs but almost certain from the storytelling and some manual testing.
+
+Our solution to the double and triple problems consists of two steps; the first step determines the graph of a single layer of the library. It is straightforward because given that those maps are indistinguishable from single-layer one, the goal is identical to that of the lightning round.
+Once we get the structure of a layer, we can start distinguishing one layer from another by relabeling each room when entered for the first time. The exploration result will be examined in pair with the executed plan; assuming the graph obtained from the first step is correct, we known which room we are in (ignoreing difference of layers). If the observed label was different from that on the single layer map, it must be the one we've relabeled earlier. In this way, we can distinguish the "original" room and the "mirror" room to reconstruct the full graph.
+
+For the triple problems, the second phase is repeated twice; first run determines one of the layers, then the following run determines other layer.
 
 In practice, SA carried end‑to‑end. Constraint solving (Z3) was explored but did not improve outcomes over tuned SA when integrated into our pipeline.
 
