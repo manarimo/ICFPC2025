@@ -1,7 +1,7 @@
 pub struct UnionFind {
     parent: Vec<usize>,
     sizes: Vec<usize>,
-    size: usize,
+    pub size: usize,
 }
 
 impl UnionFind {

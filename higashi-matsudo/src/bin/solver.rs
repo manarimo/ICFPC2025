@@ -1,11 +1,6 @@
-use std::{
-    collections::{BTreeSet, VecDeque},
-    time::{Instant, SystemTime},
-};
+use std::time::Instant;
 
-use higashi_matsudo::{
-    ApiClient, BackendType, Event, ExploreQuery, Problem, graph::Node, union_find::UnionFind,
-};
+use higashi_matsudo::{ApiClient, BackendType, Event, ExploreQuery, Problem, graph::Node};
 use rand::Rng;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -18,10 +13,10 @@ async fn main() -> Result<()> {
     let backend_type = BackendType::Mock;
     let client = ApiClient::new(backend_type)?;
 
-    let problems = [Problem::Primus];
+    let problems = [Problem::Primus, Problem::Beth, Problem::Vau];
 
     for problem in problems {
-        for i in 0..10 {
+        for i in 0..3 {
             eprintln!("problem={}, testcase={i}", problem.to_str());
             client.select(problem).await?;
 
@@ -34,7 +29,6 @@ async fn main() -> Result<()> {
 async fn solve(rng: &mut impl Rng, client: &ApiClient, problem: Problem) -> Result<()> {
     let n = problem.problem_size();
     let l = problem.layer_count();
-    let g = n / l;
     assert_eq!(n % l, 0);
 
     let mut nodes = vec![];
@@ -74,357 +68,157 @@ async fn solve(rng: &mut impl Rng, client: &ApiClient, problem: Problem) -> Resu
         }
     }
 
-    let mut assign = vec![0; nodes.len()];
-    for i in 0..nodes.len() {
-        assign[i] = rng.random_range(0..g);
+    // 複数回リスタート + 焼きなまし + 改善降下
+    let total_time_limit = match problem {
+        Problem::Primus => 3.0_f64,
+        Problem::Beth => 120.0_f64,
+        Problem::Vau => 180.0_f64,
+        _ => 10.0_f64,
+    };
+    let total_start = Instant::now();
+
+    let mut global_best_cost = i64::MAX;
+    let mut global_elapsed = 0.0_f64;
+
+    while total_start.elapsed().as_secs_f64() < total_time_limit && global_best_cost > 0 {
+        // 初期解
+        let mut assign = vec![0; nodes.len()];
+        for i in 0..nodes.len() {
+            assign[i] = rng.random_range(0..n);
+        }
+
+        let local_limit = 0.5_f64;
+        let start = Instant::now();
+        let mut cur_cost = calc_cost(&assign, &nodes, n, l);
+        let mut best_cost = cur_cost;
+
+        // 温度スケジュール（線形）
+        let t0 = (cur_cost.max(1) as f64).max(10.0);
+        let t1 = 1e-3_f64;
+
+        // 焼きなまし本体
+        while start.elapsed().as_secs_f64() < local_limit && best_cost > 0 {
+            let progress = start.elapsed().as_secs_f64() / local_limit;
+            let t = t0 + (t1 - t0) * progress;
+
+            // 近傍生成: 70% スワップ, 30% 再割当て
+            let mut next_assign = assign.clone();
+            if rng.random::<f64>() < 0.7 {
+                let i = rng.random_range(0..nodes.len());
+                let mut j = rng.random_range(0..nodes.len());
+                if i == j {
+                    j = (j + 1) % nodes.len();
+                }
+                next_assign.swap(i, j);
+            } else {
+                let i = rng.random_range(0..nodes.len());
+                let to = rng.random_range(0..n);
+                next_assign[i] = to;
+            }
+
+            let next_cost = calc_cost(&next_assign, &nodes, n, l);
+            let delta = (cur_cost - next_cost) as f64;
+            if delta >= 0.0 || rng.random::<f64>() < (delta / t).exp() {
+                assign = next_assign;
+                cur_cost = next_cost;
+                if cur_cost < best_cost {
+                    best_cost = cur_cost;
+                }
+            }
+        }
+
+        // 改善降下（確率受理なしのランダム近傍で末広がりの改善）
+        let improve_trials = 5000;
+        for _ in 0..improve_trials {
+            let mut next_assign = assign.clone();
+            if rng.random::<f64>() < 0.7 {
+                let i = rng.random_range(0..nodes.len());
+                let mut j = rng.random_range(0..nodes.len());
+                if i == j {
+                    j = (j + 1) % nodes.len();
+                }
+                next_assign.swap(i, j);
+            } else {
+                let i = rng.random_range(0..nodes.len());
+                let to = rng.random_range(0..n);
+                next_assign[i] = to;
+            }
+            let next_cost = calc_cost(&next_assign, &nodes, n, l);
+            if next_cost < cur_cost {
+                assign = next_assign;
+                cur_cost = next_cost;
+                if cur_cost < best_cost {
+                    best_cost = cur_cost;
+                }
+            }
+        }
+
+        if best_cost < global_best_cost {
+            global_best_cost = best_cost;
+            global_elapsed = total_start.elapsed().as_secs_f64();
+        }
+
+        // 時間が余っており、改善余地がありそうなら別のリスタートへ
     }
 
-    // 近傍とコストの増分を高速に評価するための前処理
-    let node_labels: Vec<usize> = nodes.iter().map(|n| n.label as usize).collect();
-    let mut neighbor_labels: Vec<[Option<usize>; 6]> = vec![[None; 6]; nodes.len()];
-    for i in 0..nodes.len() {
-        for d in 0..6 {
-            if let Some(j) = nodes[i].neighbors[d] {
-                neighbor_labels[i][d] = Some(nodes[j].label as usize);
-            }
-        }
-    }
-
-    struct AssignState {
-        assign: Vec<usize>,
-        group_size: Vec<i32>,
-        group_label_count: Vec<[i32; 4]>,
-        group_next_label_count: Vec<[[i32; 4]; 6]>,
-        node_labels: Vec<usize>,
-        neighbor_labels: Vec<[Option<usize>; 6]>,
-        cur_cost: i64,
-    }
-
-    impl AssignState {
-        fn new(
-            assign: Vec<usize>,
-            node_labels: Vec<usize>,
-            neighbor_labels: Vec<[Option<usize>; 6]>,
-            g: usize,
-            nodes: &[Node],
-        ) -> Self {
-            let mut group_size = vec![0i32; g];
-            let mut group_label_count = vec![[0i32; 4]; g];
-            let mut group_next_label_count = vec![[[0i32; 4]; 6]; g];
-
-            for (i, &grp) in assign.iter().enumerate() {
-                group_size[grp] += 1;
-                let lab = node_labels[i];
-                group_label_count[grp][lab] += 1;
-                for d in 0..6 {
-                    if let Some(nlab) = neighbor_labels[i][d] {
-                        group_next_label_count[grp][d][nlab] += 1;
-                    }
-                }
-            }
-
-            let cur_cost = cost(&assign, nodes, g);
-
-            Self {
-                assign,
-                group_size,
-                group_label_count,
-                group_next_label_count,
-                node_labels,
-                neighbor_labels,
-                cur_cost,
-            }
-        }
-
-        fn contrib_from(size: i32, label_cnt: &[i32; 4], next_cnt: &[[i32; 4]; 6]) -> i64 {
-            let size64 = size as i64;
-            let max_label = *label_cnt.iter().max().unwrap_or(&0) as i64;
-            let mut s = size64 - max_label;
-            for d in 0..6 {
-                let mx = *next_cnt[d].iter().max().unwrap_or(&0) as i64;
-                let active = next_cnt[d].iter().map(|&v| v as i64).sum::<i64>();
-                s += active - mx;
-            }
-            s
-        }
-
-        fn contrib(&self, gid: usize) -> i64 {
-            Self::contrib_from(
-                self.group_size[gid],
-                &self.group_label_count[gid],
-                &self.group_next_label_count[gid],
-            )
-        }
-
-        fn delta_move(&self, idx: usize, to_group: usize) -> i64 {
-            let from_group = self.assign[idx];
-            if from_group == to_group {
-                return 0;
-            }
-
-            let lab = self.node_labels[idx];
-
-            // before
-            let before = self.contrib(from_group) + self.contrib(to_group);
-
-            // simulate updates for from_group
-            let size_a = self.group_size[from_group] - 1;
-            let mut label_a = self.group_label_count[from_group];
-            label_a[lab] -= 1;
-            let mut next_a = self.group_next_label_count[from_group];
-            for d in 0..6 {
-                if let Some(nlab) = self.neighbor_labels[idx][d] {
-                    next_a[d][nlab] -= 1;
-                }
-            }
-
-            // simulate updates for to_group
-            let size_b = self.group_size[to_group] + 1;
-            let mut label_b = self.group_label_count[to_group];
-            label_b[lab] += 1;
-            let mut next_b = self.group_next_label_count[to_group];
-            for d in 0..6 {
-                if let Some(nlab) = self.neighbor_labels[idx][d] {
-                    next_b[d][nlab] += 1;
-                }
-            }
-
-            let after = Self::contrib_from(size_a, &label_a, &next_a)
-                + Self::contrib_from(size_b, &label_b, &next_b);
-
-            after - before
-        }
-
-        fn apply_move(&mut self, idx: usize, to_group: usize) {
-            let from_group = self.assign[idx];
-            if from_group == to_group {
-                return;
-            }
-
-            let lab = self.node_labels[idx];
-            self.group_size[from_group] -= 1;
-            self.group_label_count[from_group][lab] -= 1;
-            for d in 0..6 {
-                if let Some(nlab) = self.neighbor_labels[idx][d] {
-                    self.group_next_label_count[from_group][d][nlab] -= 1;
-                }
-            }
-
-            self.group_size[to_group] += 1;
-            self.group_label_count[to_group][lab] += 1;
-            for d in 0..6 {
-                if let Some(nlab) = self.neighbor_labels[idx][d] {
-                    self.group_next_label_count[to_group][d][nlab] += 1;
-                }
-            }
-
-            self.assign[idx] = to_group;
-        }
-    }
-
-    // 焼きなましで assign を最適化（増分計算 + 最良グループ探索）
-    let time_limit_ms: u128 = 3000; // ms 固定
-    let start = Instant::now();
-
-    let mut state = AssignState::new(assign, node_labels, neighbor_labels, g, &nodes);
-    let mut best_assign = state.assign.clone();
-    let mut best_cost = state.cur_cost;
-
-    // 強力な貪欲改善（時間の最大50% or 収束まで）
-    let greedy_deadline = (time_limit_ms / 2) as u128;
-    loop {
-        if start.elapsed().as_millis() >= greedy_deadline {
-            break;
-        }
-        let mut improved = false;
-        for i in 0..state.assign.len() {
-            if start.elapsed().as_millis() >= greedy_deadline {
-                break;
-            }
-            let from_group = state.assign[i];
-            let mut best_delta = 0i64;
-            let mut best_to = from_group;
-            for to in 0..g {
-                if to == from_group {
-                    continue;
-                }
-                let d = state.delta_move(i, to);
-                if d < best_delta {
-                    best_delta = d;
-                    best_to = to;
-                }
-            }
-            if best_to != from_group {
-                state.cur_cost += best_delta;
-                state.apply_move(i, best_to);
-                if state.cur_cost < best_cost {
-                    best_cost = state.cur_cost;
-                    best_assign.copy_from_slice(&state.assign);
-                }
-                improved = true;
-            }
-        }
-        if !improved {
-            break;
-        }
-    }
-
-    let t0 = (best_cost.max(1)) as f64;
-    let t1 = 1e-3_f64;
-
-    while start.elapsed().as_millis() < time_limit_ms {
-        let elapsed = start.elapsed().as_micros() as f64;
-        let limit = (time_limit_ms as f64) * 1000.0;
-        let progress = (elapsed / limit).min(1.0);
-        // 幾何冷却
-        let temp = t0 * (t1 / t0).powf(progress);
-
-        let i = rng.random_range(0..state.assign.len());
-        let from_group = state.assign[i];
-
-        // 最良の行き先グループを探索
-        let mut best_delta = i64::MAX;
-        let mut best_to = from_group;
-        for to in 0..g {
-            if to == from_group {
-                continue;
-            }
-            let d = state.delta_move(i, to);
-            if d < best_delta {
-                best_delta = d;
-                best_to = to;
-            }
-        }
-
-        let accept = if best_delta <= 0 {
-            true
-        } else {
-            let prob = (-(best_delta as f64) / temp).exp();
-            rng.random::<f64>() < prob
-        };
-
-        if accept && best_to != from_group {
-            state.cur_cost += best_delta;
-            state.apply_move(i, best_to);
-            if state.cur_cost < best_cost {
-                best_cost = state.cur_cost;
-                best_assign.copy_from_slice(&state.assign);
-            }
-        }
-    }
-
-    // 最良解を反映（現状はログのみ）
-    eprintln!("anneal_cost={}", best_cost);
-
-    let mut groups = vec![vec![]; g];
-    for i in 0..nodes.len() {
-        groups[best_assign[i]].push(i);
-    }
-
-    assign_to_map(&best_assign, &mut nodes, g, l, rng);
+    eprintln!(
+        "anneal: best_cost={}, elapsed={:.3}s",
+        global_best_cost, global_elapsed
+    );
 
     Ok(())
 }
 
-fn assign_to_map(
-    assign: &[usize],
-    nodes: &mut [Node],
-    g: usize,
-    l: usize,
-    rng: &mut impl Rng,
-) -> Vec<Vec<usize>> {
-    let mut groups = vec![vec![]; g];
-    for i in 0..nodes.len() {
-        groups[assign[i]].push(i);
-    }
-
-    let mut uf = UnionFind::new(nodes.len());
-    while let Some(id) = groups
-        .iter()
-        .enumerate()
-        .find(|(_, g)| g.len() > l)
-        .map(|(i, _)| i)
-    {
-        eprintln!("groups={:?}", groups);
-        let i = rng.random_range(0..groups[id].len());
-        let j = rng.random_range(0..groups[id].len());
-        if i == j {
-            continue;
-        }
-
-        let mut q = VecDeque::new();
-        let mut set = BTreeSet::new();
-        set.insert(groups[id][i]);
-        set.insert(groups[id][j]);
-        q.push_back(set);
-
-        while let Some(set) = q.pop_front() {
-            let id = *set.iter().next().expect("no id");
-            for &i in &set {
-                uf.unite(i, id);
-            }
-            for door in 0..6 {
-                let mut next_set = BTreeSet::new();
-                for &i in &set {
-                    if let Some(next) = nodes[i].neighbors[door] {
-                        next_set.insert(uf.find(next));
-                    }
-                }
-                for &i in &set {
-                    nodes[i].neighbors[door] = next_set.iter().next().copied();
-                }
-
-                if next_set.len() > 1 {
-                    q.push_back(next_set);
-                }
-            }
-        }
-
-        groups = groups
-            .into_iter()
-            .map(|g| {
-                let mut group = g.into_iter().map(|i| uf.find(i)).collect::<Vec<_>>();
-                group.sort();
-                group.dedup();
-                group
-            })
-            .collect::<Vec<_>>();
-    }
-
-    todo!()
-}
-
-fn cost(assign: &[usize], nodes: &[Node], g: usize) -> i64 {
-    let mut groups = vec![vec![]; g];
-    for i in 0..nodes.len() {
-        groups[assign[i]].push(i);
-    }
+fn calc_cost(assign: &[usize], nodes: &[Node], n: usize, l: usize) -> i64 {
+    let g = n / l;
+    assert_eq!(n % l, 0);
 
     let mut cost = 0;
-    for group in &groups {
-        let mut label_count = [0; 4];
-        for &i in group {
-            label_count[nodes[i].label as usize] += 1;
-        }
-
-        let group_size = group.len() as i64;
-        let max_count = *label_count.iter().max().expect("no label count");
-        cost += group_size - max_count;
+    let mut vertex = vec![vec![]; n];
+    let mut group = vec![vec![]; g];
+    for i in 0..nodes.len() {
+        vertex[assign[i]].push(i);
+        group[assign[i] % g].push(i);
     }
 
-    for group in &groups {
-        for door in 0..6 {
-            let mut next_label_count = [0; 4];
-            let mut active = 0i64;
-            for &i in group {
-                if let Some(next) = nodes[i].neighbors[door] {
-                    next_label_count[nodes[next].label as usize] += 1;
-                    active += 1;
+    // 同じグループ内に異なるラベルのやつが入ってしまっている
+    for group in &group {
+        for &i in group {
+            for &j in group {
+                if nodes[i].label != nodes[j].label {
+                    cost += 1;
                 }
             }
+        }
+    }
 
-            let max_count = *next_label_count.iter().max().expect("no label count");
-            cost += active - max_count;
+    // 同じグループのノードから同じドアを通って到達できるノードのラベルが異なる
+    for group in &group {
+        for &i in group {
+            for &j in group {
+                for d in 0..6 {
+                    if let (Some(i), Some(j)) = (nodes[i].neighbors[d], nodes[j].neighbors[d])
+                        && nodes[i].label != nodes[j].label
+                    {
+                        cost += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 同じvertexから同じドアを通って到達できるvertexのラベルが異なる
+    for vertex in &vertex {
+        for &i in vertex {
+            for &j in vertex {
+                for d in 0..6 {
+                    if let (Some(i), Some(j)) = (nodes[i].neighbors[d], nodes[j].neighbors[d])
+                        && assign[i] != assign[j]
+                    {
+                        cost += 1;
+                    }
+                }
+            }
         }
     }
 
