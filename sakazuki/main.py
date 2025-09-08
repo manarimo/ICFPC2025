@@ -6,12 +6,12 @@ from typing import List
 import z3
 
 
-def solve(num_rooms: int, plans: List[str], results: List[str]):
+def solve(num_rooms: int, plans: List[str], results: List[str], seed: int = 25252):
     s = z3.Solver()
     
     # Z3の最適化設定
     s.set("timeout", 30000)  # 30秒のタイムアウト
-    s.set("random_seed", 42)
+    s.set("random_seed", seed)
     s.set("arith.solver", 2)  # より効/率的な算術ソルバー
     
     m = len(plans)

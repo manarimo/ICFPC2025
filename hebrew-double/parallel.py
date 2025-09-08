@@ -64,7 +64,7 @@ def solve(args) -> Aedificium | None:
 
     if use_z3:
         print("Use z3 solver")
-        return sakazuki.solve(problem_config.num_rooms, explore.plans, explore.result)
+        return sakazuki.solve(problem_config.num_rooms, explore.plans, explore.result, process_id)
     
     print(f"プロセス {process_id} (PID: {os.getpid()}): 問題 = {problem_config}")
     
@@ -314,6 +314,7 @@ def try_solve(args):
                     estimated_aedificium = res
                     # 他のワーカーを停止して先に進む
                     subprocess.run(["pkill", "solve.exe"])
+                    pool.terminate()
                     break
         if estimated_aedificium is None:
             return False
