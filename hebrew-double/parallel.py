@@ -142,7 +142,8 @@ def _create_client_for_target(target_server: str):
 def _solve_double(client: api.APIClient, estimated_aedificium: Aedificium, num_rooms: int, deep_expeditions: int) -> Aedificium | None:
     # ランダムウォークして情報をあつめる
     # 「表」のノードを一貫した形で識別するため、毎回共通の初期動作で縮小グラフの頂点を被覆する
-    covering_path = estimated_aedificium.build_covering_path(list(range(num_rooms)))
+    #covering_path = estimated_aedificium.build_covering_path(list(range(num_rooms)))
+    covering_path = estimated_aedificium.build_edge_cover_walk_double()
     print('cover', covering_path)
     max_len = num_rooms * 2 * 6
 
@@ -152,6 +153,7 @@ def _solve_double(client: api.APIClient, estimated_aedificium: Aedificium, num_r
         raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
         enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + raw_plan)
         plans.append(enhanced_plan)
+    print(plans)
 
     # 実行
     res = client.explore(plans)

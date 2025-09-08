@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Tuple, Set
 import json
 from random import Random
 import enum
+import random
 
 
 class Action(enum.Enum):
@@ -294,6 +295,28 @@ class Aedificium:
             elif action == Action.USE_CHARCOAL:
                 new_plan_str += f"[{payload}]"
         return new_plan_str
+
+    def build_edge_cover_walk_double(self) -> str:
+        max_len = len(self.rooms) * 2 * 6
+        seen_doors = set()
+        
+        final_plan = ""
+        cur_room = self.starting_room
+        # まだ見たことのないドアを優先的に開けるランダムウォーク
+        for _ in range(max_len):
+            best_door_num = None
+            for door_num in range(6):
+                door = (cur_room, door_num)
+                if door not in seen_doors:
+                    best_door_num = door_num
+            if best_door_num == None:
+                best_door_num = random.randint(0, 5)
+            door = (cur_room, best_door_num)
+            final_plan += str(best_door_num)
+            seen_doors.add(door)
+            cur_room = self._connection_map[door][0]
+        return final_plan
+
 
     def build_dest_maps_double(self, plan_str: str, result: List[int], ignore_layer_b_transition: bool = False) -> Dict[Tuple[int, int], int] | None:
         # n = 縮小マップの次数 (実際のn / 2)
