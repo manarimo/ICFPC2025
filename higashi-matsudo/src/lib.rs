@@ -1,10 +1,13 @@
+pub mod draw;
+pub mod graph;
 pub mod union_find;
 
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const BASE_URL: &str = "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com";
+// const BASE_URL: &str = "https://31pwr5t6ij.execute-api.eu-west-2.amazonaws.com";
+const BASE_URL: &str = "http://localhost:8000";
 const MOCK_ID: &str = "kenkoooo";
 const OFFICIAL_ID: &str = "";
 
@@ -70,6 +73,19 @@ impl Problem {
             Problem::Iod => 90,
         }
     }
+
+    pub fn layer_count(&self) -> usize {
+        match self {
+            Problem::Probatio
+            | Problem::Primus
+            | Problem::Secundus
+            | Problem::Tertius
+            | Problem::Quartus
+            | Problem::Quintus => 1,
+            Problem::Aleph | Problem::Beth | Problem::Gimel | Problem::Daleth | Problem::He => 2,
+            Problem::Vau | Problem::Zain | Problem::Hhet | Problem::Teth | Problem::Iod => 3,
+        }
+    }
 }
 
 pub(crate) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -122,7 +138,7 @@ pub struct GuessResponse {
     pub correct: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     VisitRoom { label: u8 },
     Overwrite { label: u8 },
@@ -173,8 +189,7 @@ impl ApiClient {
             BackendType::Mock => MOCK_ID,
             BackendType::Official => OFFICIAL_ID,
         };
-        let response = self
-            .client
+        self.client
             .post(url)
             .json(&json!({
                 "id": id,
@@ -184,7 +199,6 @@ impl ApiClient {
             .await?
             .json::<Value>()
             .await?;
-        eprintln!("response={:?}", response);
         Ok(())
     }
 
