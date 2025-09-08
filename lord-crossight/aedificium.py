@@ -371,7 +371,8 @@ class Aedificium:
             elif label == self.rooms[next_room]:
                 next_layer = 2
             else:
-                raise Exception(f"INCONSISTENT: room={next_room}, expected={self.rooms[next_room]}, got={label}")
+                print(f"INCONSISTENT: room={next_room}, expected={self.rooms[next_room]}, got={label}")
+                return None
             from_door = (current_room + current_layer * n, door_num)
             to_room = next_room + next_layer * n
             if from_door in dests and dests[from_door] != to_room:
@@ -380,8 +381,6 @@ class Aedificium:
                 #return None
             else:
                 dests[from_door] = to_room
-            if from_door == (7, 2):
-                print("****")
             current_room, current_layer = next_room, next_layer
         print("---")
         return dests
