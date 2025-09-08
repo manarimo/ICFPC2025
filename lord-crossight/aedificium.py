@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Tuple, Set
 import json
 from random import Random
 import enum
+import random
 
 
 class Action(enum.Enum):
@@ -59,8 +60,14 @@ class Aedificium:
             to_door = conn['to']['door']
             
             # 双方向の接続を設定（undirected graph）
-            connection_map[(from_room, from_door)] = (to_room, to_door)
-            connection_map[(to_room, to_door)] = (from_room, from_door)
+            fr = (from_room, from_door)
+            to = (to_room, to_door)
+            if fr in connection_map:
+                print(f"INCONSISTENT MAP: door {fr} -> {to}, {connection_map[fr]}")
+            if to in connection_map:
+                print(f"INCONSISTENT MAP: door {to} -> {fr}, {connection_map[to]}")
+            connection_map[fr] = to
+            connection_map[to] = fr
         
         return connection_map
     
@@ -273,6 +280,8 @@ class Aedificium:
         new_plan = []
         for (i, move) in enumerate(plan):
             new_plan.append(move)
+            if move[0] == Action.USE_CHARCOAL:
+                continue
             door = self._connection_map[(current_room, move[1])]
             next_room = door[0]
             if i in layer_b_pos:
@@ -286,6 +295,28 @@ class Aedificium:
             elif action == Action.USE_CHARCOAL:
                 new_plan_str += f"[{payload}]"
         return new_plan_str
+
+    def build_edge_cover_walk_double(self) -> str:
+        max_len = len(self.rooms) * 2 * 6
+        seen_doors = set()
+        
+        final_plan = ""
+        cur_room = self.starting_room
+        # まだ見たことのないドアを優先的に開けるランダムウォーク
+        for _ in range(max_len):
+            best_door_num = None
+            for door_num in range(6):
+                door = (cur_room, door_num)
+                if door not in seen_doors:
+                    best_door_num = door_num
+            if best_door_num == None:
+                best_door_num = random.randint(0, 5)
+            door = (cur_room, best_door_num)
+            final_plan += str(best_door_num)
+            seen_doors.add(door)
+            cur_room = self._connection_map[door][0]
+        return final_plan
+
 
     def build_dest_maps_double(self, plan_str: str, result: List[int], ignore_layer_b_transition: bool = False) -> Dict[Tuple[int, int], int] | None:
         # n = 縮小マップの次数 (実際のn / 2)
@@ -360,8 +391,11 @@ class Aedificium:
                 next_layer = 0
             elif label == (self.rooms[next_room] + 2) % 4:
                 next_layer = 1
-            else:
+            elif label == self.rooms[next_room]:
                 next_layer = 2
+            else:
+                print(f"INCONSISTENT: room={next_room}, expected={self.rooms[next_room]}, got={label}")
+                return None
             from_door = (current_room + current_layer * n, door_num)
             to_room = next_room + next_layer * n
             if from_door in dests and dests[from_door] != to_room:
@@ -370,8 +404,6 @@ class Aedificium:
                 #return None
             else:
                 dests[from_door] = to_room
-            if from_door == (7, 2):
-                print("****")
             current_room, current_layer = next_room, next_layer
         print("---")
         return dests

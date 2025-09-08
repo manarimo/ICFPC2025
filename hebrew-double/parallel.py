@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 
 from aedificium import Aedificium, build_connections, parse_plan
+import sakazuki
 import api
 
 @dataclass
@@ -59,7 +60,11 @@ def solve(args) -> Aedificium | None:
     Returns:
         Tuple[List[int], int]: (推定された部屋IDの履歴, 適合度)
     """
-    process_id, problem_config, explore, binary_name, factor = args
+    process_id, problem_config, explore, binary_name, factor, use_z3 = args
+
+    if use_z3:
+        print("Use z3 solver")
+        return sakazuki.solve(problem_config.num_rooms, explore.plans, explore.result, process_id)
     
     print(f"プロセス {process_id} (PID: {os.getpid()}): 問題 = {problem_config}")
     
@@ -137,7 +142,8 @@ def _create_client_for_target(target_server: str):
 def _solve_double(client: api.APIClient, estimated_aedificium: Aedificium, num_rooms: int, deep_expeditions: int) -> Aedificium | None:
     # ランダムウォークして情報をあつめる
     # 「表」のノードを一貫した形で識別するため、毎回共通の初期動作で縮小グラフの頂点を被覆する
-    covering_path = estimated_aedificium.build_covering_path(list(range(num_rooms)))
+    #covering_path = estimated_aedificium.build_covering_path(list(range(num_rooms)))
+    covering_path = estimated_aedificium.build_edge_cover_walk_double()
     print('cover', covering_path)
     max_len = num_rooms * 2 * 6
 
@@ -147,6 +153,7 @@ def _solve_double(client: api.APIClient, estimated_aedificium: Aedificium, num_r
         raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
         enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + raw_plan)
         plans.append(enhanced_plan)
+    print(plans)
 
     # 実行
     res = client.explore(plans)
@@ -177,40 +184,31 @@ def _solve_double(client: api.APIClient, estimated_aedificium: Aedificium, num_r
 def _solve_triple(client: api.APIClient, estimated_aedificium: Aedificium, num_rooms: int, deep_expeditions: int) -> Aedificium | None:
     # ランダムウォークして情報をあつめる
     # 「表」のノードを一貫した形で識別するため、毎回共通の初期動作で縮小グラフの頂点を被覆する
+    # A面の被覆経路
     covering_path = estimated_aedificium.build_covering_path(list(range(num_rooms)))
     print('cover', covering_path)
     max_len = num_rooms * 3 * 6
 
-    # 被覆 + 情報集めのランダムウォークで探検計画を作る
+    # 被覆 + 情報集めのランダムウォーク
     raw_plans = []
-    for i in range(deep_expeditions):
-        raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
-        raw_plans.append(raw_plan)
+    raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
+    raw_plans.append(raw_plan)
     
-    first_plans = []
-    for plan in raw_plans:
-        enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + plan)
-        first_plans.append(enhanced_plan)
-    print('first', first_plans)
+    first_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + ''.join(random.choices('012345', k=max_len - len(covering_path))))
 
     # A面決め探索の実行
-    res = client.explore(first_plans)
+    res = client.explore([first_plan])
     print(res)
 
-    # それぞれの探索について、各ノードのA面でない面に最初に入ったポイントを列挙する
-    best_prefix = None
-    for (plan_str, result) in zip(first_plans, res['results']):
-        layer_b_pos = estimated_aedificium.build_layer_b_pos(plan_str, result)
-        if len(layer_b_pos) == num_rooms:
-            plan = estimated_aedificium.inject_charcoal_to_walk_triple(plan_str, layer_b_pos)
-            last_charcoal = plan.rindex(']')
-            prefix = plan[:last_charcoal+1]
-            if best_prefix is None or len(prefix) < len(best_prefix):
-                best_prefix = prefix
-
-    if best_prefix is None:
-        print("ERROR: cannot determine layer B")
+    # 各ノードのA面でない面に最初に入ったポイントを列挙し、B面にする
+    layer_b_pos = estimated_aedificium.build_layer_b_pos(first_plan, res['results'][0])
+    if len(layer_b_pos) < num_rooms:
+        print(f"ERROR: Insufficient layer B nodes")
         return None
+    plan = estimated_aedificium.inject_charcoal_to_walk_triple(first_plan, layer_b_pos)
+    last_charcoal = plan.rindex(']')
+    prefix = plan[:last_charcoal+1]
+    best_prefix = prefix
 
     prefix_turns = len(parse_plan(best_prefix))
     second_plans = []
@@ -295,22 +293,25 @@ def try_solve(args):
             problem_config,
             explore,
             binary_name,
-            factor
+            factor,
+            args.use_z3,
         )
         process_args.append(proc_arg)
     
     # 並列実行: 最初に成功した結果を採用して即時継続
-    estimated_aedificium = None
-    with multiprocessing.Pool(processes=num_processes) as pool:
-        for res in pool.imap_unordered(solve, process_args):
-            if res is not None:
-                estimated_aedificium = res
-                # 他のワーカーを停止して先に進む
-                subprocess.run(["pkill", "solve.exe"])
-                break
-    if estimated_aedificium is None:
-        return False
-    print('est', estimated_aedificium.to_json())
+    if True:
+        estimated_aedificium = None
+        with multiprocessing.Pool(processes=num_processes) as pool:
+            for res in pool.imap_unordered(solve, process_args):
+                if res is not None:
+                    estimated_aedificium = res
+                    # 他のワーカーを停止して先に進む
+                    subprocess.run(["pkill", "solve.exe"])
+                    pool.terminate()
+                    break
+        if estimated_aedificium is None:
+            return False
+        print('est', estimated_aedificium.to_json())
     if False:
         spoiler = client.spoiler()
         spoiler_aedificium = Aedificium.from_dict(spoiler['map'])
@@ -319,15 +320,15 @@ def try_solve(args):
         seen = set()
         for conn in spoiler_aedificium.connections:
             fr = conn['from']
-            fr['room'] %= 3
+            fr['room'] %= problem_config.num_rooms
             to = conn['to']
-            to['room'] %= 3
+            to['room'] %= problem_config.num_rooms
             tag = (fr['room'], fr['door'])
             if tag not in seen:
                 conns.append({'from': fr, 'to': to})
                 seen.add(tag)
 
-    #estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:3], spoiler_aedificium.starting_room, conns)
+    #estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:problem_config.num_rooms], spoiler_aedificium.starting_room, conns)
 
     if mode == 'DOUBLE':
         solution = _solve_double(client, estimated_aedificium, problem_config.num_rooms, args.deep_expeditions)
@@ -385,6 +386,11 @@ def main():
         "--deep-expeditions", type=int, default=10,
         help="Number of deep expeditions used when refining DOUBLE mode",
     )
+    parser.add_argument(
+        "--use-z3", action='store_true', 
+        help="Use z3 solver",
+    )
+
     args = parser.parse_args()
     # normalize mode to uppercase if provided
     if args.mode:
