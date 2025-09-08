@@ -59,8 +59,14 @@ class Aedificium:
             to_door = conn['to']['door']
             
             # 双方向の接続を設定（undirected graph）
-            connection_map[(from_room, from_door)] = (to_room, to_door)
-            connection_map[(to_room, to_door)] = (from_room, from_door)
+            fr = (from_room, from_door)
+            to = (to_room, to_door)
+            if fr in connection_map:
+                print(f"INCONSISTENT MAP: door {fr} -> {to}, {connection_map[fr]}")
+            if to in connection_map:
+                print(f"INCONSISTENT MAP: door {to} -> {fr}, {connection_map[to]}")
+            connection_map[fr] = to
+            connection_map[to] = fr
         
         return connection_map
     
@@ -273,6 +279,8 @@ class Aedificium:
         new_plan = []
         for (i, move) in enumerate(plan):
             new_plan.append(move)
+            if move[0] == Action.USE_CHARCOAL:
+                continue
             door = self._connection_map[(current_room, move[1])]
             next_room = door[0]
             if i in layer_b_pos:
@@ -360,8 +368,10 @@ class Aedificium:
                 next_layer = 0
             elif label == (self.rooms[next_room] + 2) % 4:
                 next_layer = 1
-            else:
+            elif label == self.rooms[next_room]:
                 next_layer = 2
+            else:
+                raise Exception(f"INCONSISTENT: room={next_room}, expected={self.rooms[next_room]}, got={label}")
             from_door = (current_room + current_layer * n, door_num)
             to_room = next_room + next_layer * n
             if from_door in dests and dests[from_door] != to_room:

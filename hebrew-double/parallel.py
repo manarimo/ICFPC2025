@@ -300,17 +300,18 @@ def try_solve(args):
         process_args.append(proc_arg)
     
     # 並列実行: 最初に成功した結果を採用して即時継続
-    estimated_aedificium = None
-    with multiprocessing.Pool(processes=num_processes) as pool:
-        for res in pool.imap_unordered(solve, process_args):
-            if res is not None:
-                estimated_aedificium = res
-                # 他のワーカーを停止して先に進む
-                subprocess.run(["pkill", "solve.exe"])
-                break
-    if estimated_aedificium is None:
-        return False
-    print('est', estimated_aedificium.to_json())
+    if True:
+        estimated_aedificium = None
+        with multiprocessing.Pool(processes=num_processes) as pool:
+            for res in pool.imap_unordered(solve, process_args):
+                if res is not None:
+                    estimated_aedificium = res
+                    # 他のワーカーを停止して先に進む
+                    subprocess.run(["pkill", "solve.exe"])
+                    break
+        if estimated_aedificium is None:
+            return False
+        print('est', estimated_aedificium.to_json())
     if False:
         spoiler = client.spoiler()
         spoiler_aedificium = Aedificium.from_dict(spoiler['map'])
@@ -319,15 +320,15 @@ def try_solve(args):
         seen = set()
         for conn in spoiler_aedificium.connections:
             fr = conn['from']
-            fr['room'] %= 3
+            fr['room'] %= problem_config.num_rooms
             to = conn['to']
-            to['room'] %= 3
+            to['room'] %= problem_config.num_rooms
             tag = (fr['room'], fr['door'])
             if tag not in seen:
                 conns.append({'from': fr, 'to': to})
                 seen.add(tag)
 
-    #estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:3], spoiler_aedificium.starting_room, conns)
+    #estimated_aedificium = Aedificium(spoiler_aedificium.rooms[0:problem_config.num_rooms], spoiler_aedificium.starting_room, conns)
 
     if mode == 'DOUBLE':
         solution = _solve_double(client, estimated_aedificium, problem_config.num_rooms, args.deep_expeditions)
