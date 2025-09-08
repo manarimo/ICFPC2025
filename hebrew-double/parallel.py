@@ -182,40 +182,31 @@ def _solve_double(client: api.APIClient, estimated_aedificium: Aedificium, num_r
 def _solve_triple(client: api.APIClient, estimated_aedificium: Aedificium, num_rooms: int, deep_expeditions: int) -> Aedificium | None:
     # ランダムウォークして情報をあつめる
     # 「表」のノードを一貫した形で識別するため、毎回共通の初期動作で縮小グラフの頂点を被覆する
+    # A面の被覆経路
     covering_path = estimated_aedificium.build_covering_path(list(range(num_rooms)))
     print('cover', covering_path)
     max_len = num_rooms * 3 * 6
 
-    # 被覆 + 情報集めのランダムウォークで探検計画を作る
+    # 被覆 + 情報集めのランダムウォーク
     raw_plans = []
-    for i in range(deep_expeditions):
-        raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
-        raw_plans.append(raw_plan)
+    raw_plan = ''.join(random.choices('012345', k=max_len - len(covering_path)))
+    raw_plans.append(raw_plan)
     
-    first_plans = []
-    for plan in raw_plans:
-        enhanced_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + plan)
-        first_plans.append(enhanced_plan)
-    print('first', first_plans)
+    first_plan = estimated_aedificium.inject_charcoal_to_walk(covering_path + ''.join(random.choices('012345', k=max_len - len(covering_path))))
 
     # A面決め探索の実行
-    res = client.explore(first_plans)
+    res = client.explore([first_plan])
     print(res)
 
-    # それぞれの探索について、各ノードのA面でない面に最初に入ったポイントを列挙する
-    best_prefix = None
-    for (plan_str, result) in zip(first_plans, res['results']):
-        layer_b_pos = estimated_aedificium.build_layer_b_pos(plan_str, result)
-        if len(layer_b_pos) == num_rooms:
-            plan = estimated_aedificium.inject_charcoal_to_walk_triple(plan_str, layer_b_pos)
-            last_charcoal = plan.rindex(']')
-            prefix = plan[:last_charcoal+1]
-            if best_prefix is None or len(prefix) < len(best_prefix):
-                best_prefix = prefix
-
-    if best_prefix is None:
-        print("ERROR: cannot determine layer B")
+    # 各ノードのA面でない面に最初に入ったポイントを列挙し、B面にする
+    layer_b_pos = estimated_aedificium.build_layer_b_pos(first_plan, res['results'][0])
+    if len(layer_b_pos) < num_rooms:
+        print(f"ERROR: Insufficient layer B nodes")
         return None
+    plan = estimated_aedificium.inject_charcoal_to_walk_triple(first_plan, layer_b_pos)
+    last_charcoal = plan.rindex(']')
+    prefix = plan[:last_charcoal+1]
+    best_prefix = prefix
 
     prefix_turns = len(parse_plan(best_prefix))
     second_plans = []
