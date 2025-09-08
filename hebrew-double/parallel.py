@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 
 from aedificium import Aedificium, build_connections, parse_plan
+import sakazuki
 import api
 
 @dataclass
@@ -59,7 +60,11 @@ def solve(args) -> Aedificium | None:
     Returns:
         Tuple[List[int], int]: (推定された部屋IDの履歴, 適合度)
     """
-    process_id, problem_config, explore, binary_name, factor = args
+    process_id, problem_config, explore, binary_name, factor, use_z3 = args
+
+    if use_z3:
+        print("Use z3 solver")
+        return sakazuki.solve(problem_config.num_rooms, explore.plans, explore.result)
     
     print(f"プロセス {process_id} (PID: {os.getpid()}): 問題 = {problem_config}")
     
@@ -295,7 +300,8 @@ def try_solve(args):
             problem_config,
             explore,
             binary_name,
-            factor
+            factor,
+            args.use_z3,
         )
         process_args.append(proc_arg)
     
@@ -386,6 +392,11 @@ def main():
         "--deep-expeditions", type=int, default=10,
         help="Number of deep expeditions used when refining DOUBLE mode",
     )
+    parser.add_argument(
+        "--use-z3", action='store_true', 
+        help="Use z3 solver",
+    )
+
     args = parser.parse_args()
     # normalize mode to uppercase if provided
     if args.mode:
