@@ -1,3 +1,4 @@
+import collections
 from typing import List, Dict, Any, Tuple, Set
 import json
 from random import Random
@@ -298,22 +299,25 @@ class Aedificium:
 
     def build_edge_cover_walk_double(self) -> str:
         max_len = len(self.rooms) * 2 * 6
-        seen_doors = set()
+        seen_doors = collections.defaultdict(lambda: 0)
         
         final_plan = ""
         cur_room = self.starting_room
         # まだ見たことのないドアを優先的に開けるランダムウォーク
         for _ in range(max_len):
             best_door_num = None
-            for door_num in range(6):
+            best_door_deg = None
+            ord = list(range(6))
+            random.shuffle(ord)
+            for door_num in ord:
                 door = (cur_room, door_num)
-                if door not in seen_doors:
+                deg = seen_doors[door]
+                if best_door_deg is None or deg < best_door_deg:
                     best_door_num = door_num
-            if best_door_num == None:
-                best_door_num = random.randint(0, 5)
+                    best_door_deg = deg
             door = (cur_room, best_door_num)
             final_plan += str(best_door_num)
-            seen_doors.add(door)
+            seen_doors[door] += 1
             cur_room = self._connection_map[door][0]
         return final_plan
 
