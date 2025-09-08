@@ -24,8 +24,9 @@ In practice, SA carried end‑to‑end. Constraint solving (Z3) was explored but
 ## What Actually Worked in Production
 
 - Main solvers used for official submissions:
-  - Lightning and most Double: `kawatea/simulated_annealing.cpp`.
-  - Triple: `hebrew-double` pipeline (despite the name, it mainly handled triple).
+  - Lightning: `kawatea/simulated_annealing.cpp`.
+  - Double: `kawatea/double.cpp`.
+  - Most triple: `hebrew-double` pipeline (despite the name, it mainly handled triple).
   - Z3 (“sakazuki”) was a good try but performed roughly on par with SA; we stuck with SA.
 - SA was used all the way through reconstruction.
 - Wizardry UI (Next.js) helped very early to understand the spec, but we quickly moved to automated tooling.
@@ -53,16 +54,14 @@ In practice, SA carried end‑to‑end. Constraint solving (Z3) was explored but
 - Mock API server: `lord-crossight/`
   - Endpoints: `/select`, `/explore`, `/guess`, `/compare`, `/spoiler`.
   - Persists per‑id state; deployable to Cloud Run.
+  - Heavily used for local testing, since the contest server cannot handle multiple sessions concurrently.
 
 - Frontend UI / proxy: `wizardry/`
   - Next.js app with API routes that proxy to either mock or official backend.
   - Useful for early inspection; later de‑emphasized.
 
-- Wrapper (FIFO ↔ HTTP): `wrapper/`
-  - Converts a simple text protocol to JSON API calls so binaries can talk to the server reliably.
-
 - Solvers / runners:
-  - Simulated Annealing (C++): `kawatea/simulated_annealing.cpp`, `hebrew-double/simulated_annealing.cpp`, `megamix/solver/*`.
+  - Simulated Annealing (C++): `kawatea/simulated_annealing.cpp` (Lightning), `kawatea/double.cpp` (Full, doubles), `hebrew-double/simulated_annealing.cpp + parallel.py` (mostly triples), `megamix/solver/*`.
   - Parallel driver for Double/Triple: `hebrew-double/parallel.py` (orchestrates plans, SA workers, charcoal strategy).
   - Lightning solver (hash‑based): `vertrages/main.py` (fast single‑map reconstruction).
   - Z3 prototype: `sakazuki/main.py` (kept for reference; not used in final submissions).
@@ -89,7 +88,7 @@ In practice, SA carried end‑to‑end. Constraint solving (Z3) was explored but
 
 - `lord-crossight/` — Mock API and reference `Aedificium` implementation.
 - `wizardry/` — Next.js UI and proxy.
-- `wrapper/` — FIFO↔HTTP adapter for solvers.
+- `wrapper/` — FIFO↔HTTP adapter for solvers (not used actually).
 - `kawatea/`, `hebrew-double/`, `megamix/` — SA solvers and orchestrators.
 - `sakazuki/` — Z3 prototype.
 - `vertrages/` — Lightning (single) solver.
